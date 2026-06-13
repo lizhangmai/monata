@@ -103,7 +103,8 @@ def _pyplot() -> Any:
         return import_module("matplotlib.pyplot")
     except ImportError as exc:
         raise RuntimeError(
-            'plotting requires matplotlib; install it with `python -m pip install "monata[plot]"`'
+            "plotting requires matplotlib, which is a default Monata runtime dependency; "
+            "reinstall Monata or check the Python environment"
         ) from exc
 
 

@@ -84,7 +84,10 @@ def _import_h5py(caller: str) -> Any:
     try:
         return import_module("h5py")
     except ImportError as exc:
-        raise RuntimeError(f"{caller} requires the optional 'hdf5' extra") from exc
+        raise RuntimeError(
+            f"{caller} requires h5py, which is a default Monata runtime dependency; "
+            "reinstall Monata or check the Python environment"
+        ) from exc
 
 
 def _write_analysis_hdf5(group: Any, analysis: AnalysisResult, dataset_options: Mapping[str, Any]) -> None:

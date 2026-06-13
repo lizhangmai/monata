@@ -25,26 +25,17 @@ classifiers = [
 ]
 dependencies = [
     "numpy",
+    "matplotlib",
+    "h5py",
+    "cffi",
 ]
 
 [project.optional-dependencies]
-plot = [
-    "matplotlib",
-]
-hdf5 = [
-    "h5py",
-]
-ngspice-shared = [
-    "cffi",
-]
 dev = [
     "pytest",
     "pytest-cov",
     "ruff",
     "pyright",
-    "matplotlib",
-    "h5py",
-    "cffi",
     "build",
     "twine",
 ]

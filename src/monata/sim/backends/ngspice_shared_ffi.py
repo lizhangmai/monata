@@ -94,7 +94,10 @@ def new_ffi() -> Any:
     try:
         cffi: Any = import_module("cffi")
     except ImportError as exc:
-        raise NgspiceSharedLibraryError("ngspice shared backend requires the optional 'ngspice-shared' extra") from exc
+        raise NgspiceSharedLibraryError(
+            "ngspice shared backend requires cffi, which is a default Monata runtime dependency; "
+            "reinstall Monata or check the Python environment"
+        ) from exc
     ffi = cffi.FFI()
     ffi.cdef(_CDEF)
     return ffi

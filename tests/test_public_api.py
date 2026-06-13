@@ -365,8 +365,8 @@ def test_core_package_metadata_keeps_external_tools_out_of_dependencies():
     dependencies = set(pyproject["project"]["dependencies"])
     optional = pyproject["project"]["optional-dependencies"]
 
-    assert dependencies == {"numpy"}
-    assert optional["ngspice-shared"] == ["cffi"]
+    assert dependencies == {"numpy", "matplotlib", "h5py", "cffi"}
+    assert set(optional) == {"dev"}
     for dependency_group in (dependencies, *map(set, optional.values())):
         assert not {"ngspice", "openvaf", "xyce", "xdm"} & dependency_group
 

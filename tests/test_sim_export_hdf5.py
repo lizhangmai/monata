@@ -20,23 +20,23 @@ def _result():
     )
 
 
-def test_export_sim_result_hdf5_requires_optional_dependency_when_missing(tmp_path, monkeypatch):
+def test_export_sim_result_hdf5_explains_broken_h5py_runtime_dependency(tmp_path, monkeypatch):
     if "h5py" in sys.modules:
         pytest.skip("h5py is installed; missing-dependency behavior is not active")
 
     monkeypatch.setitem(sys.modules, "h5py", None)
 
-    with pytest.raises(RuntimeError, match="optional 'hdf5' extra"):
+    with pytest.raises(RuntimeError, match="default Monata runtime dependency"):
         export_sim_result_hdf5(_result(), tmp_path / "result.h5")
 
 
-def test_load_sim_result_hdf5_requires_optional_dependency_when_missing(tmp_path, monkeypatch):
+def test_load_sim_result_hdf5_explains_broken_h5py_runtime_dependency(tmp_path, monkeypatch):
     if "h5py" in sys.modules:
         pytest.skip("h5py is installed; missing-dependency behavior is not active")
 
     monkeypatch.setitem(sys.modules, "h5py", None)
 
-    with pytest.raises(RuntimeError, match="optional 'hdf5' extra"):
+    with pytest.raises(RuntimeError, match="default Monata runtime dependency"):
         load_sim_result_hdf5(tmp_path / "result.h5")
 
 

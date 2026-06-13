@@ -428,7 +428,7 @@ def test_plotting_helpers_accept_typed_results():
     assert {line.get_linestyle() for line in styled_analysis_axis.lines} == {"-."}
 
 
-def test_plotting_helpers_explain_optional_plot_extra(monkeypatch):
+def test_plotting_helpers_explain_broken_matplotlib_runtime_dependency(monkeypatch):
     import monata.sim.plot as plot
 
     def missing_matplotlib(name):
@@ -437,11 +437,11 @@ def test_plotting_helpers_explain_optional_plot_extra(monkeypatch):
 
     monkeypatch.setattr(plot, "import_module", missing_matplotlib)
 
-    with pytest.raises(RuntimeError, match=r"monata\[plot\]"):
+    with pytest.raises(RuntimeError, match="default Monata runtime dependency"):
         plot.plot_waveform(Waveform(name="out", data=np.array([1.0])))
 
 
-def test_plot_helpers_use_supplied_axes_without_plot_extra(monkeypatch):
+def test_plot_helpers_use_supplied_axes_without_importing_matplotlib(monkeypatch):
     import monata.sim.plot as plot
 
     class FalseyAxis:
@@ -491,7 +491,7 @@ def test_plot_helpers_use_supplied_axes_without_plot_extra(monkeypatch):
     assert analysis_axis.ylabel == "V"
 
 
-def test_plot_bode_uses_supplied_axes_without_plot_extra(monkeypatch):
+def test_plot_bode_uses_supplied_axes_without_importing_matplotlib(monkeypatch):
     import monata.sim.plot as plot
 
     class Axis:
