@@ -13,6 +13,7 @@ from monata.sim.backends.ngspice_shared import (
     NgspiceSharedSession,
     _execute_plan,
 )
+from monata.sim.backends.ngspice_shared_ffi import library_candidates
 from monata.sim.backends.ngspice_plan import NgspiceTaskPlan
 from monata.sim.core import LocalExecutor
 from monata.sim.results import SimResult
@@ -42,6 +43,10 @@ def test_shared_runner_missing_library_returns_structured_failure():
     assert result.metadata["reason"] == "simulator_missing"
     assert result.error_message is not None
     assert "libngspice" in result.error_message
+
+
+def test_shared_library_candidates_include_common_runtime_soname():
+    assert "libngspice.so.0" in library_candidates(None)
 
 
 def test_shared_runner_rejects_non_native_circuit_before_opening_session():
@@ -435,6 +440,9 @@ def test_shared_session_exposes_ngspice_control_command_wrappers():
 
 def test_shared_session_command_wrappers_validate_command_parts():
     class CommandRecorder(NgspiceSharedSession):
+        def __init__(self):
+            pass
+
         def command(self, command):
             return command
 

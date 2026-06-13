@@ -146,7 +146,7 @@ class ModelRegistry:
         for search_path in self._search_paths:
             if not search_path.is_dir():
                 continue
-            for osdi_file in search_path.rglob("*.osdi"):
+            for osdi_file in sorted(search_path.rglob("*.osdi")):
                 self._register_from_osdi(osdi_file)
 
     def _register_from_osdi(self, osdi_path: Path):

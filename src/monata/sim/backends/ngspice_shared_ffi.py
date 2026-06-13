@@ -122,7 +122,7 @@ def library_candidates(library: str | None) -> tuple[str, ...]:
     found = ctypes.util.find_library("ngspice")
     if found:
         candidates.append(found)
-    candidates.extend(["ngspice", "libngspice.so", "libngspice.dylib", "ngspice.dll"])
+    candidates.extend(["ngspice", "libngspice.so", "libngspice.so.0", "libngspice.dylib", "ngspice.dll"])
     deduped: list[str] = []
     for candidate in candidates:
         if candidate not in deduped:

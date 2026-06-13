@@ -182,6 +182,7 @@ def parse_fourier_stdout(stdout: str) -> tuple[dict[str, np.ndarray], dict[str, 
                 pass
     if not harmonics:
         raise ValueError("ngspice fourier output did not contain a harmonic table")
+    metadata.setdefault("fourier_harmonic_count", len(harmonics))
     waveforms = {
         "harmonic": np.asarray(harmonics),
         "frequency": np.asarray(frequencies),
