@@ -1,0 +1,27 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyright/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+pip-wheel-metadata/
+.venv/
+.env
+.env.*
+!.env.example
+
+# Documentation build
+docs/_build/
+docs/api/monata/

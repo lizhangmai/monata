@@ -1,0 +1,321 @@
+"""Parsers for Monata-generated ngspice rawfile and wrdata outputs."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+import re
+
+import numpy as np
+
+_FLOAT_RE = r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?"
+_TEMPERATURE_RE = re.compile(
+    rf"\bTEMP\s*=\s*(?P<temperature>{_FLOAT_RE})\s+and\s+TNOM\s*=\s*(?P<nominal_temperature>{_FLOAT_RE})\b",
+    re.IGNORECASE,
+)
+
+
+class RawfileParseError(ValueError):
+    """Raised for unsupported or malformed ngspice rawfiles."""
+
+
+@dataclass(frozen=True)
+class RawfileVector:
+    index: int
+    name: str
+    kind: str
+    data: np.ndarray
+
+
+@dataclass(frozen=True)
+class RawfileResult:
+    title: str | None
+    plotname: str | None
+    flags: tuple[str, ...]
+    scale: RawfileVector
+    vectors: tuple[RawfileVector, ...]
+    metadata: dict
+
+    def vector(self, name: str) -> RawfileVector:
+        for vector in self.vectors:
+            if vector.name == name:
+                return vector
+        lowered = name.lower()
+        for vector in self.vectors:
+            if vector.name.lower() == lowered:
+                return vector
+        raise KeyError(f"rawfile vector not found: {name}")
+
+
+def parse_rawfile(path: str | Path) -> RawfileResult:
+    """Parse an ngspice ASCII or binary rawfile."""
+
+    result_path = Path(path)
+    raw = result_path.read_bytes()
+    binary_payload = None
+    binary_marker = _find_binary_marker(raw)
+    if binary_marker is not None:
+        line_end = raw.find(b"\n", binary_marker)
+        if line_end < 0:
+            raise RawfileParseError("ngspice binary rawfile missing payload")
+        binary_payload = raw[line_end + 1 :]
+        raw = raw[:binary_marker]
+    try:
+        text = raw.decode()
+    except UnicodeDecodeError as exc:
+        raise RawfileParseError("unsupported encoded ngspice rawfile") from exc
+    lines = text.splitlines()
+    headers: dict[str, str] = {}
+    variables_start = _find_section(lines, "Variables:")
+    values_start = _find_section(lines, "Values:")
+    binary_start = _find_section(lines, "Binary:")
+    if values_start is None:
+        if binary_start is None and binary_payload is None:
+            raise RawfileParseError("ngspice rawfile missing Values section")
+        if binary_payload is None:
+            raise RawfileParseError("ngspice binary rawfile missing payload")
+    if values_start is None and variables_start is None:
+        raise RawfileParseError("ngspice rawfile missing Variables section")
+    if variables_start is None:
+        raise RawfileParseError("ngspice rawfile missing Variables section")
+
+    headers, header_metadata = _parse_rawfile_headers(lines[:variables_start])
+
+    try:
+        expected_vectors = int(headers["no. variables"])
+        expected_points = int(headers["no. points"])
+    except (KeyError, ValueError) as exc:
+        raise RawfileParseError("ngspice rawfile missing vector or point count") from exc
+    if expected_vectors < 1 or expected_points < 1:
+        raise RawfileParseError("ngspice rawfile requires at least one vector and one point")
+    flags = tuple(headers.get("flags", "real").split())
+    is_complex = "complex" in {flag.lower() for flag in flags}
+
+    definitions_end = values_start if values_start is not None else binary_start
+    if definitions_end is None:
+        definitions_end = len(lines)
+    definitions = _parse_rawfile_variables(lines[variables_start + 1 : definitions_end], expected_vectors)
+    if binary_payload is not None:
+        values = _parse_binary_rawfile_values(
+            binary_payload,
+            expected_vectors,
+            expected_points,
+            is_complex=is_complex,
+        )
+        rawfile_format = "binary"
+    else:
+        if values_start is None:
+            raise RawfileParseError("ngspice rawfile missing Values section")
+        values = _parse_rawfile_values(
+            lines[values_start + 1 :],
+            expected_vectors,
+            expected_points,
+            is_complex=is_complex,
+        )
+        rawfile_format = "ascii"
+    vectors = tuple(
+        RawfileVector(index=index, name=name, kind=kind, data=values[:, index])
+        for index, name, kind in definitions
+    )
+    return RawfileResult(
+        title=headers.get("title"),
+        plotname=headers.get("plotname"),
+        flags=flags,
+        scale=vectors[0],
+        vectors=vectors,
+        metadata={
+            "title": headers.get("title"),
+            "plotname": headers.get("plotname"),
+            "flags": list(flags),
+            "num_variables": expected_vectors,
+            "num_points": expected_points,
+            "extraction": "rawfile",
+            "rawfile_format": rawfile_format,
+            **header_metadata,
+        },
+    )
+
+
+def parse_wrdata(path: str | Path, output_names: list[str]) -> tuple[np.ndarray | None, dict[str, np.ndarray]]:
+    """Parse ngspice wrdata output generated by Monata.
+
+    The runner emits `set wr_singlescale` before `wrdata`, so the expected table
+    shape is one scale column followed by one column per requested output.
+    """
+
+    result_path = Path(path)
+    if not result_path.exists():
+        raise FileNotFoundError(f"ngspice output file not found: {result_path}")
+
+    data = np.loadtxt(result_path)
+    if data.size == 0:
+        return None, {}
+    if data.ndim == 1:
+        data = data.reshape(1, -1)
+    expected_columns = 1 + len(output_names)
+    if data.shape[1] != expected_columns:
+        raise ValueError(
+            f"unsupported ngspice output shape: expected {expected_columns} columns, got {data.shape[1]}"
+        )
+
+    sweep_var = data[:, 0]
+    waveforms: dict[str, np.ndarray] = {}
+    value_columns = data[:, 1:]
+    for index, name in enumerate(output_names):
+        if index < value_columns.shape[1]:
+            waveforms[name] = value_columns[:, index]
+    return sweep_var, waveforms
+
+
+def _find_section(lines: list[str], section: str) -> int | None:
+    section_lower = section.lower()
+    for index, line in enumerate(lines):
+        if line.strip().lower() == section_lower:
+            return index
+    return None
+
+
+def _find_binary_marker(raw: bytes) -> int | None:
+    for marker in (b"\nBinary:", b"\r\nBinary:"):
+        index = raw.find(marker)
+        if index >= 0:
+            return index + len(marker) - len(b"Binary:")
+    if raw.startswith(b"Binary:"):
+        return 0
+    return None
+
+
+def _parse_rawfile_headers(lines: list[str]) -> tuple[dict[str, str], dict[str, object]]:
+    headers: dict[str, str] = {}
+    metadata: dict[str, object] = {}
+    warnings: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        temperature = _TEMPERATURE_RE.search(stripped)
+        if temperature is not None:
+            metadata["temperature"] = float(temperature.group("temperature"))
+            metadata["nominal_temperature"] = float(temperature.group("nominal_temperature"))
+            continue
+        if ":" not in stripped:
+            continue
+        key, value = stripped.split(":", 1)
+        normalized_key = key.strip().lower()
+        text = value.strip()
+        if normalized_key.startswith("warning"):
+            warnings.append(text or stripped)
+            continue
+        headers[normalized_key] = text
+    if warnings:
+        metadata["warnings"] = warnings
+    for metadata_key in ("circuit", "date"):
+        if metadata_key in headers:
+            metadata[metadata_key] = headers[metadata_key]
+    return headers, metadata
+
+
+def _parse_rawfile_variables(
+    lines: list[str],
+    expected_vectors: int,
+) -> list[tuple[int, str, str]]:
+    definitions: list[tuple[int, str, str]] = []
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.lower().startswith("no. of data columns"):
+            continue
+        parts = stripped.split()
+        if len(parts) < 3:
+            raise RawfileParseError(f"malformed rawfile vector definition: {line}")
+        try:
+            index = int(parts[0])
+        except ValueError as exc:
+            raise RawfileParseError(f"malformed rawfile vector index: {parts[0]}") from exc
+        definitions.append((index, parts[1], parts[2]))
+    if len(definitions) != expected_vectors:
+        raise RawfileParseError(
+            f"rawfile vector count mismatch: expected {expected_vectors}, got {len(definitions)}"
+        )
+    for expected_index, (index, _name, _kind) in enumerate(definitions):
+        if index != expected_index:
+            raise RawfileParseError(f"rawfile vector index mismatch: expected {expected_index}, got {index}")
+    return definitions
+
+
+def _parse_rawfile_values(
+    lines: list[str],
+    expected_vectors: int,
+    expected_points: int,
+    *,
+    is_complex: bool,
+) -> np.ndarray:
+    rows: list[list[float | complex]] = []
+    index = 0
+    while index < len(lines):
+        stripped = lines[index].strip()
+        index += 1
+        if not stripped:
+            continue
+        parts = stripped.split()
+        if not parts:
+            continue
+        try:
+            point_index = int(parts[0])
+        except ValueError as exc:
+            raise RawfileParseError(f"malformed rawfile point index: {parts[0]}") from exc
+        values = parts[1:]
+        while len(values) < expected_vectors and index < len(lines):
+            continuation = lines[index].strip()
+            index += 1
+            if continuation:
+                values.extend(continuation.split())
+        if len(values) != expected_vectors:
+            raise RawfileParseError(
+                f"rawfile value width mismatch at point {point_index}: expected {expected_vectors}, got {len(values)}"
+            )
+        rows.append([_parse_rawfile_value(value, is_complex=is_complex) for value in values])
+    if len(rows) != expected_points:
+        raise RawfileParseError(f"rawfile point count mismatch: expected {expected_points}, got {len(rows)}")
+    return np.array(rows, dtype=complex if is_complex else float)
+
+
+def _parse_binary_rawfile_values(
+    payload: bytes,
+    expected_vectors: int,
+    expected_points: int,
+    *,
+    is_complex: bool,
+) -> np.ndarray:
+    scalar_count = expected_vectors * expected_points * (2 if is_complex else 1)
+    expected_bytes = scalar_count * 8
+    if len(payload) < expected_bytes:
+        raise RawfileParseError(
+            f"binary rawfile payload too short: expected {expected_bytes} bytes, got {len(payload)}"
+        )
+    if len(payload) > expected_bytes:
+        payload = payload[:expected_bytes]
+    values = np.frombuffer(payload, dtype="<f8", count=scalar_count)
+    if is_complex:
+        pairs = values.reshape(expected_points, expected_vectors, 2)
+        return pairs[:, :, 0] + 1j * pairs[:, :, 1]
+    return values.reshape(expected_points, expected_vectors)
+
+
+def _parse_rawfile_value(value: str, *, is_complex: bool) -> float | complex:
+    text = value.strip().strip("()")
+    if is_complex:
+        pieces = text.split(",")
+        if len(pieces) != 2:
+            raise RawfileParseError(f"malformed complex rawfile value: {value}")
+        try:
+            return complex(float(pieces[0]), float(pieces[1]))
+        except ValueError as exc:
+            raise RawfileParseError(f"malformed complex rawfile value: {value}") from exc
+    if "," in text:
+        raise RawfileParseError(f"malformed real rawfile value: {value}")
+    try:
+        return float(text)
+    except ValueError as exc:
+        raise RawfileParseError(f"malformed real rawfile value: {value}") from exc

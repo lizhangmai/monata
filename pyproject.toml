@@ -1,0 +1,97 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "monata"
+version = "0.1.0"
+description = "A lightweight EDA framework for circuit design and SPICE simulation workflows"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+authors = [
+    { name = "lizhangmai" },
+]
+keywords = ["eda", "spice", "circuit", "simulation", "analog", "digital", "cmos"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+]
+dependencies = [
+    "numpy",
+]
+
+[project.optional-dependencies]
+plot = [
+    "matplotlib",
+]
+hdf5 = [
+    "h5py",
+]
+ngspice-shared = [
+    "cffi",
+]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "ruff",
+    "pyright",
+    "matplotlib",
+    "h5py",
+    "cffi",
+    "build",
+    "twine",
+]
+
+[project.urls]
+Homepage = "https://github.com/lizhangmai/monata"
+Repository = "https://github.com/lizhangmai/monata"
+Issues = "https://github.com/lizhangmai/monata/issues"
+
+[tool.hatch.build.targets.wheel]
+only-packages = true
+packages = ["src/monata"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/monata/",
+    "tests/",
+    "LICENSE",
+    "README.md",
+    "pyproject.toml",
+]
+exclude = [
+    "data/",
+    "examples/",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["--strict-markers"]
+markers = [
+    "fast: quick unit or contract tests suitable for the default development loop",
+    "integration: cross-module workflows, external fixtures, or end-to-end persistence paths",
+    "native: tests that execute or depend on native simulator backends or external simulator binaries",
+    "slow: broad or computationally heavier suites kept out of the fast development loop",
+]
+
+[tool.ruff]
+line-length = 120
+src = ["src", "tests"]
+target-version = "py311"
+
+[tool.pyright]
+exclude = [
+    "**/__pycache__",
+    "build",
+    "dist",
+]
+extraPaths = ["src", "tests"]
+include = ["src/monata", "tests"]
+pythonVersion = "3.11"
