@@ -58,39 +58,27 @@ npx skills add lizhangmai/skills --skill monata-sim-env --skill conda-build
 Then open the agent in your project workspace and ask:
 
 ```text
-Use the monata-sim-env skill to set up a Monata simulation environment.
-
-Use this final local conda channel for circuit-tool packages:
+Use the monata-sim-env skill to set up this Monata environment.
 CONDA_BUILD_OUTPUT_DIR=<absolute-path-you-choose>
-
-Build or reuse the circuit-toolchain ngspice package, create a pixi project
-environment that uses that local channel plus conda-forge, install Python 3.12,
-ngspice, and the PyPI monata package, then verify that Python can import monata
-and find the ngspice executable.
-
-Build only the packages needed for this Monata workflow. For the current Monata
-backend, build or reuse ngspice only; do not build the full circuit-toolchain
-set unless I explicitly request it.
-
-Do not publish or upload packages to any remote channel.
 ```
 
 Replace `<absolute-path-you-choose>` with a real absolute path before sending
 the prompt. If the prompt does not include `CONDA_BUILD_OUTPUT_DIR=...`, the
-agent should ask for it before running build, pixi, or install commands. Add
-extra circuit packages only when your workflow needs them, for example
-`openvaf-r` for Verilog-A to OSDI preparation. The Xyce recipe stack is not
+agent should ask for it before running build, pixi, or install commands. The
+skill inspects the Monata workspace before choosing tool packages; the current
+Monata baseline is `ngspice` plus `openvaf-r`. The Xyce recipe stack is not
 required for the current Monata backend.
 
 ### Existing simulator environment
 
 Use this path if your current Python environment already has the relevant
 circuit packages installed, such as an `ngspice` executable on `PATH` or under
-`CONDA_PREFIX/bin`. In that case, only the PyPI package needs to be installed.
+`CONDA_PREFIX/bin` and `openvaf-r` for model compilation. In that case, only
+the PyPI package needs to be installed.
 
 ```bash
 python -m pip install monata
-python -c "import monata, shutil; print(shutil.which('ngspice'))"
+python -c "import shutil; print(shutil.which('ngspice')); print(shutil.which('openvaf-r'))"
 ```
 
 If you only use Monata for library organization, netlist generation, or result
@@ -148,6 +136,8 @@ compiled OSDI binaries.
 Monata can use:
 
 - a user-installed `ngspice` executable through `ngspice-subprocess`;
+- a user-installed `openvaf-r` executable to compile Verilog-A models into
+  OSDI artifacts used by ngspice workflows;
 - a user-provided `libngspice` shared library through `ngspice-shared`;
 - separately installed technology-library packages such as `monata-techlib`.
 
