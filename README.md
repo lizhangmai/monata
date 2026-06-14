@@ -59,18 +59,21 @@ Then open the agent in your project workspace and ask:
 ```text
 Use the monata-sim-env skill to set up a Monata simulation environment.
 
-Please use a persistent local conda channel for circuit-tool packages, build or
-reuse the circuit-toolchain ngspice package, create a pixi project environment
-that uses that local channel plus conda-forge, install Python 3.12, ngspice, and
-the PyPI monata package, then verify that Python can import monata and find the
-ngspice executable.
+Use this final local conda channel for circuit-tool packages:
+CONDA_BUILD_OUTPUT_DIR=<absolute-path-you-choose>
+
+Build or reuse the circuit-toolchain ngspice package, create a pixi project
+environment that uses that local channel plus conda-forge, install Python 3.12,
+ngspice, and the PyPI monata package, then verify that Python can import monata
+and find the ngspice executable.
 
 Do not publish or upload packages to any remote channel.
 ```
 
-The agent should set or confirm `CONDA_BUILD_OUTPUT_DIR` before building so the
-generated conda packages are kept in a persistent local channel. Ask it to add
-extra circuit packages only when your workflow needs them, for example
+Replace `<absolute-path-you-choose>` with a real absolute path before sending
+the prompt. If the prompt does not include `CONDA_BUILD_OUTPUT_DIR=...`, the
+agent should ask for it before running build, pixi, or install commands. Ask it
+to add extra circuit packages only when your workflow needs them, for example
 `openvaf-r` for Verilog-A to OSDI preparation or the Xyce recipe stack for Xyce
 workflows.
 
