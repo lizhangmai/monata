@@ -37,7 +37,8 @@ they plan to use.
 This is the recommended path when you use Codex, Claude Code, or another coding
 agent that can install skills. Install the `conda-build` skill from
 `lizhangmai/skills` together with the user-facing `monata-sim-env` skill, then
-ask the agent to create the Monata runtime environment for you.
+ask the agent to create the Monata runtime environment for you. The agent
+should build only the native packages required by the requested workflow.
 
 In Claude Code, install the skill through the plugin marketplace:
 
@@ -67,15 +68,19 @@ environment that uses that local channel plus conda-forge, install Python 3.12,
 ngspice, and the PyPI monata package, then verify that Python can import monata
 and find the ngspice executable.
 
+Build only the packages needed for this Monata workflow. For the current Monata
+backend, build or reuse ngspice only; do not build the full circuit-toolchain
+set unless I explicitly request it.
+
 Do not publish or upload packages to any remote channel.
 ```
 
 Replace `<absolute-path-you-choose>` with a real absolute path before sending
 the prompt. If the prompt does not include `CONDA_BUILD_OUTPUT_DIR=...`, the
-agent should ask for it before running build, pixi, or install commands. Ask it
-to add extra circuit packages only when your workflow needs them, for example
-`openvaf-r` for Verilog-A to OSDI preparation or the Xyce recipe stack for Xyce
-workflows.
+agent should ask for it before running build, pixi, or install commands. Add
+extra circuit packages only when your workflow needs them, for example
+`openvaf-r` for Verilog-A to OSDI preparation. The Xyce recipe stack is not
+required for the current Monata backend.
 
 ### Existing simulator environment
 
