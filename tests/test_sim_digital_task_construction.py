@@ -80,14 +80,12 @@ def test_digital_stimulus_metadata_decoder_rejects_malformed_fields():
         sweep_var=np.array([0.0, 1.0]),
         corner=None,
         metadata={
-            "task_metadata": {
-                "monata": {
-                    "digital_task_v1": {
-                        "schema": "monata.sim.digital-task.v1",
-                        "stimulus": {
-                            "kind": "digital_single_bit_arc_sequence",
-                            "arcs": "bad",
-                        },
+            "monata": {
+                "digital_task_v1": {
+                    "schema": "monata.sim.digital-task.v1",
+                    "stimulus": {
+                        "kind": "digital_single_bit_arc_sequence",
+                        "arcs": "bad",
                     }
                 }
             }
@@ -119,7 +117,7 @@ def test_digital_sequence_metadata_rejects_inconsistent_slot_duration():
         waveforms={},
         sweep_var=np.array([0.0, 1.0]),
         corner=None,
-        metadata={"task_metadata": {**task.metadata, "monata": monata_metadata}},
+        metadata={**task.metadata, "monata": monata_metadata},
     )
 
     with pytest.raises(RuntimeError, match="slot_duration"):
@@ -291,9 +289,7 @@ def test_digital_task_metadata_rejects_unknown_schema():
         sweep_var=np.array([0.0]),
         corner=None,
         metadata={
-            "task_metadata": {
-                "monata": {"digital_task_v1": {"schema": "monata.sim.digital-task.v999"}}
-            }
+            "monata": {"digital_task_v1": {"schema": "monata.sim.digital-task.v999"}}
         },
     )
 
@@ -301,7 +297,7 @@ def test_digital_task_metadata_rejects_unknown_schema():
         digital_stimulus_metadata(result)
 
 
-def test_digital_task_metadata_requires_result_task_metadata_envelope():
+def test_digital_task_metadata_accepts_result_metadata():
     result = SimResult(
         status="ok",
         waveforms={},
@@ -317,8 +313,7 @@ def test_digital_task_metadata_requires_result_task_metadata_envelope():
         },
     )
 
-    with pytest.raises(RuntimeError, match="must include task_metadata"):
-        digital_stimulus_metadata(result)
+    assert digital_stimulus_metadata(result).kind == "digital_single_bit_arc_sequence"
 
 
 def test_digital_task_metadata_requires_monata_namespace():
@@ -327,7 +322,7 @@ def test_digital_task_metadata_requires_monata_namespace():
         waveforms={},
         sweep_var=np.array([0.0]),
         corner=None,
-        metadata={"task_metadata": {"stimulus": {"kind": "digital_single_bit_arc_sequence"}}},
+        metadata={"stimulus": {"kind": "digital_single_bit_arc_sequence"}},
     )
 
     with pytest.raises(RuntimeError, match=r"metadata\['monata'\]"):
@@ -340,7 +335,7 @@ def test_digital_task_metadata_rejects_missing_schema():
         waveforms={},
         sweep_var=np.array([0.0]),
         corner=None,
-        metadata={"task_metadata": {"monata": {"digital_task_v1": {"stimulus": {}}}}},
+        metadata={"monata": {"digital_task_v1": {"stimulus": {}}}},
     )
 
     with pytest.raises(RuntimeError, match="unsupported digital task metadata schema"):
@@ -353,7 +348,7 @@ def test_digital_task_metadata_rejects_non_mapping_payload():
         waveforms={},
         sweep_var=np.array([0.0]),
         corner=None,
-        metadata={"task_metadata": {"monata": {"digital_task_v1": "bad"}}},
+        metadata={"monata": {"digital_task_v1": "bad"}},
     )
 
     with pytest.raises(RuntimeError, match="payload must be a mapping"):

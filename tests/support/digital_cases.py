@@ -364,10 +364,6 @@ def _has_pwl_point(points: tuple[tuple[float, float], ...], time: float, value: 
 def _digital_task_metadata(task_or_metadata) -> Mapping[str, Any]:
     metadata = getattr(task_or_metadata, "metadata", task_or_metadata)
     assert isinstance(metadata, Mapping)
-    if "task_metadata" in metadata:
-        task_metadata = metadata["task_metadata"]
-        assert isinstance(task_metadata, Mapping)
-        metadata = task_metadata
     namespace = metadata["monata"]
     assert isinstance(namespace, Mapping)
     payload = namespace["digital_task_v1"]
@@ -386,7 +382,7 @@ def _sequence_result_for_task(
         sweep_var=np.array([0.0, 1.0]),
         waveforms={},
         corner=None,
-        metadata={"task_metadata": task.metadata},
+        metadata=task.metadata,
     )
     schedule = DigitalTruthTablePlan(table).sequence_for_result(dummy)
     arcs = schedule.arcs
@@ -449,7 +445,7 @@ def _sequence_result_for_task(
         sweep_var=time,
         waveforms=waveforms,
         corner=None,
-        metadata={"task_metadata": task.metadata},
+        metadata=task.metadata,
     )
 
 

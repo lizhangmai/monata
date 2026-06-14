@@ -228,17 +228,14 @@ def _artifact_task_payloads(
     ):
         metadata = dict(sim_result.metadata)
         artifacts = metadata.get("artifacts")
-        task_metadata = metadata.get("task_metadata")
         if isinstance(artifacts, Mapping):
             directory = artifacts.get("directory")
         else:
             directory = None
-        if not isinstance(task_metadata, Mapping):
-            raise RuntimeError("digital run artifacts require result task_metadata")
-        control_metadata = digital_task_metadata(task_metadata)
+        control_metadata = digital_task_metadata(metadata)
         measurements = control_metadata.get("measurements")
         stimulus = control_metadata.get("stimulus")
-        index = task_metadata.get("simulation_artifact_index")
+        index = metadata.get("simulation_artifact_index")
         task_payload: dict[str, object] = {}
         if index is not None:
             task_payload["index"] = index

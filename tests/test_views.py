@@ -334,7 +334,7 @@ def _op_result_for_task(task):
     bits = tuple(int(bit) for bit in payload["stimulus"]["bits"])
     for output in task.output_names:
         values[output] = [float(bits[0] & bits[1])]
-    return SimResult(status="ok", waveforms=values, sweep_var=None, corner=None, metadata={"task_metadata": task.metadata})
+    return SimResult(status="ok", waveforms=values, sweep_var=None, corner=None, metadata=task.metadata)
 
 
 def _digital_sequence_result_for_task(task):
@@ -382,7 +382,7 @@ def _digital_sequence_result_for_task(task):
                 _append_test_point(points, initial_settle + (state_index + 1) * slot_duration, level)
             previous = level
         waveforms[output_name] = np.interp(time, [point[0] for point in points], [point[1] for point in points])
-    return SimResult(status="ok", waveforms=waveforms, sweep_var=time, corner=None, metadata={"task_metadata": task.metadata})
+    return SimResult(status="ok", waveforms=waveforms, sweep_var=time, corner=None, metadata=task.metadata)
 
 
 def _timing_result_for_task(task):
@@ -400,13 +400,13 @@ def _timing_result_for_task(task):
         waveforms[input_name] = _interpolate_timing_input(time, arcs, input_index)
     for output_name in outputs:
         waveforms[output_name] = _interpolate_and2_output(time, arcs, transition=transition, delay=0.2 * period)
-    return SimResult(status="ok", waveforms=waveforms, sweep_var=time, corner=None, metadata={"task_metadata": task.metadata})
+    return SimResult(status="ok", waveforms=waveforms, sweep_var=time, corner=None, metadata=task.metadata)
 
 
 def _unmeasurable_timing_result_for_task(task):
     time = np.linspace(0.0, float(task.analysis_spec.stop), int(float(task.analysis_spec.stop) / 0.01) + 1)
     waveforms = {name: np.zeros_like(time) for name in task.output_names}
-    return SimResult(status="ok", waveforms=waveforms, sweep_var=time, corner=None, metadata={"task_metadata": task.metadata})
+    return SimResult(status="ok", waveforms=waveforms, sweep_var=time, corner=None, metadata=task.metadata)
 
 
 def _and2_timing_arcs(*, period: float, transition: float, trigger_fraction: float):
@@ -544,14 +544,14 @@ def test_simulation_view_reports_task_progress_without_reordering_results(tmp_pa
             waveforms={},
             sweep_var=None,
             corner=None,
-            metadata={"task_metadata": {"progress_sample": {"chunk_index": 0}}},
+            metadata={"progress_sample": {"chunk_index": 0}},
         ),
         SimResult(
             status="ok",
             waveforms={},
             sweep_var=None,
             corner=None,
-            metadata={"task_metadata": {"progress_sample": {"chunk_index": 1}}},
+            metadata={"progress_sample": {"chunk_index": 1}},
         ),
     )
 

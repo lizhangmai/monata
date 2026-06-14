@@ -413,22 +413,12 @@ class DigitalTruthTablePlan:
         return self._input_skew(max(len(self.table.inputs) - 1, 0))
 
 
-def sim_result_task_metadata(sim_result: SimResult) -> Mapping[str, Any]:
-    task_metadata = sim_result.metadata.get("task_metadata")
-    if not isinstance(task_metadata, Mapping):
-        raise RuntimeError("digital simulation result metadata must include task_metadata")
-    return task_metadata
-
-
 def sim_result_digital_task_metadata(sim_result: SimResult) -> Mapping[str, Any]:
-    return digital_task_metadata(sim_result_task_metadata(sim_result))
+    return digital_task_metadata(sim_result.metadata)
 
 
 def sim_result_has_digital_task_metadata(sim_result: SimResult) -> bool:
-    task_metadata = sim_result.metadata.get("task_metadata")
-    if not isinstance(task_metadata, Mapping):
-        return False
-    namespace = task_metadata.get(MONATA_METADATA_KEY)
+    namespace = sim_result.metadata.get(MONATA_METADATA_KEY)
     return isinstance(namespace, Mapping) and DIGITAL_TASK_METADATA_KEY in namespace
 
 

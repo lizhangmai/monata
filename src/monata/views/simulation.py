@@ -243,9 +243,6 @@ def _result_progress_payload(result: SimResult) -> dict[str, Any]:
     if result.error_message is not None:
         payload["error"] = result.error_message
     metadata = dict(result.metadata)
-    task_metadata = metadata.get("task_metadata")
-    if isinstance(task_metadata, Mapping):
-        payload["task_metadata"] = dict(task_metadata)
     artifacts = metadata.get("artifacts")
     if isinstance(artifacts, Mapping):
         payload["artifacts"] = dict(artifacts)

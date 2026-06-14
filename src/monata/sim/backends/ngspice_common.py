@@ -200,19 +200,22 @@ def artifact_metadata(
     elapsed: float,
     extra_metadata: dict | None = None,
 ) -> dict:
-    return {
-        "analysis": plan.analysis_name,
-        "extraction": plan.extraction,
-        **(extra_metadata or {}),
-        "status": status,
-        "reason": reason,
-        "elapsed_time": elapsed,
-        "outputs": list(plan.output_names),
-        "output_vectors": list(plan.output_vectors),
-        "osdi_paths": [str(path) for path in plan.osdi_paths],
-        "plan": plan.metadata,
-        "task_metadata": dict(task.metadata),
-    }
+    return attach_backend_metadata(
+        task,
+        {
+            "analysis": plan.analysis_name,
+            "extraction": plan.extraction,
+            **(extra_metadata or {}),
+            "status": status,
+            "reason": reason,
+            "elapsed_time": elapsed,
+            "outputs": list(plan.output_names),
+            "output_vectors": list(plan.output_vectors),
+            "osdi_paths": [str(path) for path in plan.osdi_paths],
+            "plan": plan.metadata,
+        },
+        top_level_keys=frozenset(),
+    )
 
 
 def missing_osdi_path(plan: NgspiceTaskPlan) -> Path | None:
