@@ -21,13 +21,73 @@ users install in their own environments.
 - Optional technology-library packages, such as `monata-techlib`, for reusable
   model metadata and redistributed model assets.
 
-## Installation
+## Environment Setup
+
+Monata supports Python 3.11 and 3.12. The Python package does not bundle
+simulator binaries, so set up the runtime environment before running simulation
+examples.
+
+Choose one of these paths. The agent-managed pixi path is recommended for new
+projects. The existing-environment path is only for users who have already
+built and installed the required circuit packages into the Python environment
+they plan to use.
+
+### Recommended: agent-managed pixi environment
+
+This is the recommended path when you use Codex, Claude Code, or another coding
+agent that can install skills. Install the `conda-build` skill from
+`lizhangmai/skills` together with the user-facing `monata-sim-env` skill, then
+ask the agent to create the Monata runtime environment for you.
+
+In Claude Code, install the skill through the plugin marketplace:
+
+```text
+/plugin marketplace add https://github.com/lizhangmai/skills
+/plugin install monata-sim-env@lizhangmai
+/plugin install conda-build@lizhangmai
+```
+
+In Codex or another agent, install both skills with the open skills installer
+or that agent's normal skill-install flow:
+
+```bash
+npx skills add lizhangmai/skills --skill monata-sim-env --skill conda-build
+```
+
+Then open the agent in your project workspace and ask:
+
+```text
+Use the monata-sim-env skill to set up a Monata simulation environment.
+
+Please use a persistent local conda channel for circuit-tool packages, build or
+reuse the circuit-toolchain ngspice package, create a pixi project environment
+that uses that local channel plus conda-forge, install Python 3.12, ngspice, and
+the PyPI monata package, then verify that Python can import monata and find the
+ngspice executable.
+
+Do not publish or upload packages to any remote channel.
+```
+
+The agent should set or confirm `CONDA_BUILD_OUTPUT_DIR` before building so the
+generated conda packages are kept in a persistent local channel. Ask it to add
+extra circuit packages only when your workflow needs them, for example
+`openvaf-r` for Verilog-A to OSDI preparation or the Xyce recipe stack for Xyce
+workflows.
+
+### Existing simulator environment
+
+Use this path if your current Python environment already has the relevant
+circuit packages installed, such as an `ngspice` executable on `PATH` or under
+`CONDA_PREFIX/bin`. In that case, only the PyPI package needs to be installed.
 
 ```bash
 python -m pip install monata
+python -c "import monata, shutil; print(shutil.which('ngspice'))"
 ```
 
-Monata supports Python 3.11 and 3.12.
+If you only use Monata for library organization, netlist generation, or result
+post-processing, the simulator check is not required until you run a simulation
+backend.
 
 ## Quick Start
 
@@ -71,7 +131,7 @@ print(result.waveforms["vout"])
 The default backend is `ngspice-subprocess`, which runs a local `ngspice`
 executable from `PATH` or `CONDA_PREFIX/bin`.
 
-## External Tools
+## External Tool Boundary
 
 The public `monata` package does not ship simulator binaries, shared simulator
 libraries, XSPICE code models, OpenVAF, Xyce, foundry PDKs, PTM model cards, or
@@ -85,35 +145,6 @@ Monata can use:
 
 Users and downstream packagers remain responsible for installing external tools
 and complying with their upstream licenses.
-
-Recommended local setup:
-
-```bash
-git clone https://github.com/lizhangmai/lizhangmai-skills.git
-cd lizhangmai-skills/skills/conda-build
-
-# Choose a persistent local conda channel for generated circuit-tool packages.
-export CONDA_BUILD_OUTPUT_DIR="$HOME/.local/share/monata-conda-channel"
-
-# Build the current Monata runtime backend.
-python3 scripts/rattler_channel.py build --recipe-set circuit-toolchain --package ngspice
-```
-
-Then create a project environment with pixi:
-
-```bash
-pixi init monata-work \
-  --channel "file://$CONDA_BUILD_OUTPUT_DIR" \
-  --channel https://prefix.dev/conda-forge
-cd monata-work
-pixi add python=3.12 ngspice
-pixi add --pypi monata
-pixi run python -c "import monata, shutil; print(shutil.which('ngspice'))"
-```
-
-Build additional circuit packages from the same skill only when your workflow
-needs them, for example `openvaf-r` for Verilog-A to OSDI preparation or
-`--up-to xyce` for the Xyce recipe stack.
 
 ## Documentation
 
