@@ -211,14 +211,14 @@ Monata 0.2 treats ordinary cellviews as declarative data by default:
 parsed and validated without executing project code. For data views, `read()`
 returns the structured payload and `load()` remains a safe parse operation.
 
-Python views are trusted executable extensions. Register them with explicit
-names and metadata such as `schematic_py = { entry = "schematic.py", format =
-"python-schematic", trusted = true, class = "Inverter" }`, then call
-`load_trusted()` or `run_trusted()` when execution is intended. Legacy
-`schematic.py` and `testbench.py` views remain supported for compatibility, but
-loading them executes that project code in the current Python process; view
-loading is not sandboxed. Open, load, generate, and simulate executable views
-only from trusted libraries and project workspaces.
+Python views are trusted executable extensions. Register them on the semantic
+view key with explicit metadata such as `schematic = { entry = "schematic.py",
+format = "python-schematic", trusted = true, class = "Inverter" }`, then call
+`load_trusted()` or `run_trusted()` when execution is intended. Python view
+metadata without an explicit format and `trusted = true` is rejected. Loading
+trusted views executes project code in the current Python process; view loading
+is not sandboxed. Open, load, generate, and simulate executable views only from
+trusted libraries and project workspaces.
 
 ## License
 

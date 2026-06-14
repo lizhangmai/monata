@@ -21,7 +21,6 @@ class View:
         format: str | None = None,
         trusted: bool = False,
         schema_version: int | None = None,
-        legacy_trusted: bool = False,
     ):
         self._view_type = view_type
         self._cell = cell
@@ -30,7 +29,6 @@ class View:
         self._format = format
         self._trusted = bool(trusted)
         self._schema_version = schema_version
-        self._legacy_trusted = bool(legacy_trusted)
 
     @property
     def view_type(self) -> str:
@@ -59,10 +57,6 @@ class View:
     @property
     def schema_version(self) -> int | None:
         return self._schema_version
-
-    @property
-    def legacy_trusted(self) -> bool:
-        return self._legacy_trusted
 
     def path(self) -> Path:
         return self._cell.path

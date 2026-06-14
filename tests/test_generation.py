@@ -28,7 +28,7 @@ def _make_cell_with_schematic(tmp_path):
     (cell_dir / "cell.toml").write_text(
         '[cell]\nname = "inverter"\ndescription = "source schematic"\n\n'
         '[views]\n'
-        'schematic = { entry = "schematic.py", class = "Inverter" }\n'
+        'schematic = { entry = "schematic.py", format = "python-schematic", trusted = true, class = "Inverter" }\n'
     )
 
     lib = MagicMock()
@@ -60,7 +60,7 @@ def _make_cell_with_pdk_schematic(tmp_path, library):
     (cell_dir / "cell.toml").write_text(
         '[cell]\nname = "pdk_inv"\ndescription = "source schematic"\n\n'
         '[views]\n'
-        'schematic = { entry = "schematic.py", class = "PdkInv" }\n'
+        'schematic = { entry = "schematic.py", format = "python-schematic", trusted = true, class = "PdkInv" }\n'
     )
 
     return Cell(cell_dir, library)
@@ -196,7 +196,7 @@ def test_generate_views_for_category_owned_cell(tmp_path):
         "    def build(self):\n"
         "        pass\n"
     )
-    cell.create_view("schematic", cls_name="Inverter")
+    cell.create_view("schematic", format="python-schematic", trusted=True, cls_name="Inverter")
 
     symbol_path = cell.generate_symbol()
     netlist_path = cell.generate_netlist()
@@ -247,7 +247,12 @@ def test_generate_netlist_updates_cell_toml(tmp_path):
     assert config["views"]["netlist"]["format"] == "spice"
     assert config["views"]["netlist"]["generated"] is True
     assert config["cell"] == {"name": "inverter", "description": "source schematic"}
-    assert config["views"]["schematic"] == {"entry": "schematic.py", "class": "Inverter"}
+    assert config["views"]["schematic"] == {
+        "entry": "schematic.py",
+        "format": "python-schematic",
+        "trusted": True,
+        "class": "Inverter",
+    }
 
 
 def test_generate_netlist_refuses_when_not_generated(tmp_path):

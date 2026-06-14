@@ -25,7 +25,13 @@ def test_foundation_project_to_ngspice_result_closed_loop(tmp_path, require_ngsp
         "        self.resistor('load', 'inp', 'out', '1k')\n"
         "        self.capacitor('hold', 'out', 'gnd', '1n')\n"
     )
-    cell.create_view("schematic", entry="schematic.py", cls_name="RcProbe")
+    cell.create_view(
+        "schematic",
+        entry="schematic.py",
+        format="python-schematic",
+        trusted=True,
+        cls_name="RcProbe",
+    )
 
     symbol_path = cell.generate_symbol()
     netlist_path = cell.generate_netlist()

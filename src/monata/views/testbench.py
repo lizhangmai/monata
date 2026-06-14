@@ -14,7 +14,6 @@ class TestbenchView(View):
         *,
         view_type: str = "testbench",
         trusted: bool = True,
-        legacy_trusted: bool = False,
     ):
         super().__init__(
             view_type=view_type,
@@ -23,7 +22,6 @@ class TestbenchView(View):
             generated=False,
             format="python-testbench",
             trusted=trusted,
-            legacy_trusted=legacy_trusted,
         )
         self._function_name = function_name
 

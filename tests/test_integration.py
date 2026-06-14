@@ -29,7 +29,13 @@ def test_full_workflow(tmp_path):
         "    def build(self):\n"
         "        pass\n"
     )
-    cell.create_view("schematic", entry="schematic.py", cls_name="Buffer")
+    cell.create_view(
+        "schematic",
+        entry="schematic.py",
+        format="python-schematic",
+        trusted=True,
+        cls_name="Buffer",
+    )
 
     sch = cell["schematic"]
     cls = sch.load()
@@ -72,7 +78,13 @@ def test_dict_like_access(tmp_path):
         "    def build(self):\n"
         "        pass\n"
     )
-    cell.create_view("schematic", entry="sch.py", cls_name="Inv")
+    cell.create_view(
+        "schematic",
+        entry="sch.py",
+        format="python-schematic",
+        trusted=True,
+        cls_name="Inv",
+    )
 
     cls = reg["mylib"]["inv"]["schematic"].load()
     assert cls.NAME == "inv"

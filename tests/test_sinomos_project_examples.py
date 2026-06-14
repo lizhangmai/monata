@@ -122,7 +122,7 @@ def test_sinomos_non_multiplier_examples_render_checked_in_netlists(
 
     assert "schematic" in cell.list_views()
     assert "symbol" in cell.list_views()
-    assert (cell.path / "symbol.toml").is_file()
+    assert (cell.path / "symbol.monata.json").is_file()
     assert "sinomos_agent" not in (cell.path / "schematic.py").read_text()
 
     schematic_cls = _load_schematic_class(sinomos_library, cell_name)

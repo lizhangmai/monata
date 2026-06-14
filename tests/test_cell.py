@@ -83,7 +83,7 @@ def test_cell_list_views_empty(tmp_path):
 
 
 def test_cell_list_views(tmp_path):
-    views_toml = 'schematic = { entry = "schematic.py", class = "Inv" }\n'
+    views_toml = 'schematic = { entry = "schematic.py", format = "python-schematic", trusted = true, class = "Inv" }\n'
     cell_dir = _make_cell(tmp_path, views_toml=views_toml)
     lib = MagicMock()
     cell = Cell(cell_dir, lib)
@@ -91,7 +91,7 @@ def test_cell_list_views(tmp_path):
 
 
 def test_cell_getitem_schematic(tmp_path):
-    views_toml = 'schematic = { entry = "schematic.py", class = "Inv" }\n'
+    views_toml = 'schematic = { entry = "schematic.py", format = "python-schematic", trusted = true, class = "Inv" }\n'
     cell_dir = _make_cell(tmp_path, views_toml=views_toml)
     lib = MagicMock()
     cell = Cell(cell_dir, lib)
@@ -101,7 +101,7 @@ def test_cell_getitem_schematic(tmp_path):
 
 
 def test_cell_getitem_testbench(tmp_path):
-    views_toml = 'testbench = { entry = "testbench.py", function = "main" }\n'
+    views_toml = 'testbench = { entry = "testbench.py", format = "python-testbench", trusted = true, function = "main" }\n'
     cell_dir = _make_cell(tmp_path, views_toml=views_toml)
     lib = MagicMock()
     cell = Cell(cell_dir, lib)
@@ -120,12 +120,40 @@ def test_cell_getitem_netlist(tmp_path):
 
 
 def test_cell_getitem_symbol(tmp_path):
-    views_toml = 'symbol = { entry = "symbol.toml", generated = true }\n'
+    views_toml = 'symbol = { entry = "symbol.monata.json", format = "monata-symbol-json", generated = true }\n'
     cell_dir = _make_cell(tmp_path, views_toml=views_toml)
     lib = MagicMock()
     cell = Cell(cell_dir, lib)
     view = cell["symbol"]
     assert view.view_type == "symbol"
+
+
+@pytest.mark.parametrize(
+    ("views_toml", "view_type", "message"),
+    [
+        (
+            'schematic = { entry = "schematic.py", class = "Inv" }\n',
+            "schematic",
+            "format = 'python-schematic'",
+        ),
+        (
+            'testbench = { entry = "testbench.py", function = "main" }\n',
+            "testbench",
+            "format = 'python-testbench'",
+        ),
+        (
+            'symbol = { entry = "symbol.toml", generated = true }\n',
+            "symbol",
+            "symbol.monata.json",
+        ),
+    ],
+)
+def test_cell_getitem_rejects_removed_view_metadata(tmp_path, views_toml, view_type, message):
+    cell_dir = _make_cell(tmp_path, views_toml=views_toml)
+    cell = Cell(cell_dir, MagicMock())
+
+    with pytest.raises(ValueError, match=message):
+        cell[view_type]
 
 
 def test_cell_getitem_not_found(tmp_path):
@@ -153,7 +181,7 @@ def test_cell_getitem_uses_registered_custom_view(tmp_path):
 
 
 def test_cell_contains(tmp_path):
-    views_toml = 'schematic = { entry = "schematic.py", class = "Inv" }\n'
+    views_toml = 'schematic = { entry = "schematic.py", format = "python-schematic", trusted = true, class = "Inv" }\n'
     cell_dir = _make_cell(tmp_path, views_toml=views_toml)
     lib = MagicMock()
     cell = Cell(cell_dir, lib)
@@ -172,19 +200,25 @@ def test_cell_generated_view_writable_contract_honors_force(tmp_path):
 
     path = cell.write_generated_view("netlist", entry="netlist.cir", content="new", force=True)
     assert path.read_text() == "new"
-    cell.write_generated_view("symbol", entry="symbol.toml", content="[symbol]\n", force=False)
+    cell.write_generated_view("symbol", entry="symbol.monata.json", content="{}\n", force=False)
 
 
 def test_cell_create_view(tmp_path):
     cell_dir = _make_cell(tmp_path)
     lib = MagicMock()
     cell = Cell(cell_dir, lib)
-    view = cell.create_view("schematic", entry="schematic.py", cls_name="Inv")
+    view = cell.create_view(
+        "schematic",
+        entry="schematic.py",
+        format="python-schematic",
+        trusted=True,
+        cls_name="Inv",
+    )
     assert view.view_type == "schematic"
 
 
 def test_cell_create_view_preserves_existing_metadata(tmp_path):
-    views_toml = 'schematic = { entry = "schematic.py", class = "Inv" }\n'
+    views_toml = 'schematic = { entry = "schematic.py", format = "python-schematic", trusted = true, class = "Inv" }\n'
     cell_dir = _make_cell(tmp_path, views_toml=views_toml)
     lib = MagicMock()
     cell = Cell(cell_dir, lib)
@@ -195,7 +229,12 @@ def test_cell_create_view_preserves_existing_metadata(tmp_path):
         config = tomllib.load(file)
     assert view.view_type == "netlist"
     assert config["cell"] == {"name": "inverter", "description": "test"}
-    assert config["views"]["schematic"] == {"entry": "schematic.py", "class": "Inv"}
+    assert config["views"]["schematic"] == {
+        "entry": "schematic.py",
+        "format": "python-schematic",
+        "trusted": True,
+        "class": "Inv",
+    }
     assert config["views"]["netlist"] == {
         "entry": "netlist.cir",
         "format": "spice",
@@ -211,6 +250,24 @@ def test_cell_create_view_rejects_unsafe_view_types_without_writing(tmp_path, vi
 
     with pytest.raises(ValueError, match="view type must be a single safe path segment"):
         cell.create_view(view_type, entry="layout.gds")
+
+    with open(cell_dir / "cell.toml", "rb") as file:
+        config = tomllib.load(file)
+    assert config["views"] == {}
+
+
+def test_cell_create_view_rejects_removed_implicit_python_metadata_without_writing(tmp_path):
+    cell_dir = _make_cell(tmp_path)
+    cell = Cell(cell_dir, MagicMock())
+
+    with pytest.raises(ValueError, match="use schematic_py"):
+        cell.create_view("schematic", entry="schematic.py", cls_name="Inv")
+
+    with pytest.raises(ValueError, match="use testbench_py"):
+        cell.create_view("testbench", entry="testbench.py", function_name="main")
+
+    with pytest.raises(ValueError, match="symbol.monata.json"):
+        cell.create_view("symbol", entry="symbol.toml")
 
     with open(cell_dir / "cell.toml", "rb") as file:
         config = tomllib.load(file)
@@ -324,7 +381,7 @@ ptm65 = "ptm65nm_pmos"
     )
     (cell_dir / "cell.toml").write_text(
         '[cell]\nname = "inv"\n\n'
-        '[views]\nschematic = { entry = "schematic.py", class = "Inv" }\n'
+        '[views]\nschematic = { entry = "schematic.py", format = "python-schematic", trusted = true, class = "Inv" }\n'
     )
     (cell_dir / "schematic.py").write_text(
         """

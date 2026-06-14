@@ -127,10 +127,6 @@ class ViewRegistry:
             schema = self.get_schema_for_format(str(requested_format))
             if schema is None:
                 raise ValueError(f"unknown view format: {requested_format}")
-        else:
-            inferred = _legacy_config_format_for(view_type, options)
-            if inferred is not None:
-                schema = self.get_schema_for_format(inferred)
         if schema is None:
             schema = self.get_schema(view_type)
         if schema is None:
@@ -151,9 +147,7 @@ class ViewRegistry:
             if schema is None:
                 raise ValueError(f"unknown view format: {view_format}")
             return schema
-        inferred = _legacy_format_for(view_type, config)
-        if inferred is not None:
-            return self.get_schema_for_format(inferred)
+        _reject_removed_view_metadata(view_type, config)
         return self.get_schema(view_type)
 
     def generate(self, cell: Any, view_type: str, **kwargs: Any) -> Path:
@@ -278,15 +272,8 @@ def _register_defaults() -> None:
         view_format="monata-symbol-json",
         schema_version=1,
         generated=True,
+        config_factory=_symbol_config,
         generator=_generate_symbol,
-    )
-    register_view_type(
-        "symbol_toml",
-        _symbol_view,
-        replace=True,
-        default_entry="symbol.toml",
-        view_format="monata-symbol-toml",
-        generated=True,
     )
     register_view_type(
         "simulation",
@@ -318,14 +305,12 @@ def _schematic_json_view(cell: Any, cfg: ViewConfig) -> Any:
 def _schematic_python_view(cell: Any, cfg: ViewConfig) -> Any:
     from monata.views.schematic import SchematicView
 
-    explicit_format = cfg.get("format") == "python-schematic"
-    trusted = _trusted_python_config(cfg, view_format="python-schematic") if explicit_format else True
+    trusted = _trusted_python_config(cfg, view_format="python-schematic")
     return SchematicView(
         cell=cell,
         entry=str(cfg["entry"]),
         cls_name=str(cfg["class"]),
         trusted=trusted,
-        legacy_trusted=not explicit_format,
     )
 
 
@@ -343,14 +328,12 @@ def _testbench_json_view(cell: Any, cfg: ViewConfig) -> Any:
 def _testbench_python_view(cell: Any, cfg: ViewConfig) -> Any:
     from monata.views.testbench import TestbenchView
 
-    explicit_format = cfg.get("format") == "python-testbench"
-    trusted = _trusted_python_config(cfg, view_format="python-testbench") if explicit_format else True
+    trusted = _trusted_python_config(cfg, view_format="python-testbench")
     return TestbenchView(
         cell=cell,
         entry=str(cfg["entry"]),
         function_name=str(cfg["function"]),
         trusted=trusted,
-        legacy_trusted=not explicit_format,
     )
 
 
@@ -358,12 +341,6 @@ def _netlist_view(cell: Any, cfg: ViewConfig) -> Any:
     from monata.views.netlist import NetlistView
 
     return NetlistView(cell=cell, entry=str(cfg["entry"]))
-
-
-def _symbol_view(cell: Any, cfg: ViewConfig) -> Any:
-    from monata.views.symbol import SymbolView
-
-    return SymbolView(cell=cell, entry=str(cfg["entry"]))
 
 
 def _symbol_json_view(cell: Any, cfg: ViewConfig) -> Any:
@@ -403,44 +380,41 @@ def _digital_truth_table_view(cell: Any, cfg: ViewConfig) -> Any:
 
 
 def _schematic_config(view_type: str, options: ViewConfigOptions, schema: ViewSchema) -> MutableViewConfig:
-    if options.get("format") == "monata-schematic-json" and any(key in options for key in ("cls_name", "class")):
-        raise ValueError("monata-schematic-json views cannot include Python class metadata; use schematic_py with trusted = true")
-    if "cls_name" not in options:
-        return {
-            "entry": options.get("entry", schema.default_entry or "schematic.monata.json"),
-            "format": "monata-schematic-json",
-            "schema_version": options.get("schema_version", 1),
-        }
+    if any(key in options for key in ("cls_name", "class")):
+        raise ValueError(
+            "monata-schematic-json views cannot include Python class metadata; "
+            "use schematic_py with trusted = true"
+        )
     return {
-        "entry": options.get("entry", "schematic.py"),
-        "class": options["cls_name"],
+        "entry": options.get("entry", schema.default_entry or "schematic.monata.json"),
+        "format": "monata-schematic-json",
+        "schema_version": options.get("schema_version", 1),
     }
 
 
 def _testbench_config(view_type: str, options: ViewConfigOptions, schema: ViewSchema) -> MutableViewConfig:
     entry = str(options.get("entry", schema.default_entry or "testbench.monata.json"))
-    if options.get("format") == "monata-testbench-json":
-        if any(key in options for key in ("function_name", "function")):
-            raise ValueError(
-                "monata-testbench-json views cannot include Python function metadata; "
-                "use testbench_py with trusted = true"
-            )
-        return {
-            "entry": entry,
-            "format": "monata-testbench-json",
-            "schema_version": options.get("schema_version", 1),
-        }
-    if (
-        "function_name" not in options and not entry.endswith(".py")
-    ):
-        return {
-            "entry": entry,
-            "format": "monata-testbench-json",
-            "schema_version": options.get("schema_version", 1),
-        }
+    if any(key in options for key in ("function_name", "function")):
+        raise ValueError(
+            "monata-testbench-json views cannot include Python function metadata; "
+            "use testbench_py with trusted = true"
+        )
     return {
-        "entry": options.get("entry", "testbench.py"),
-        "function": options.get("function_name", "main"),
+        "entry": entry,
+        "format": "monata-testbench-json",
+        "schema_version": options.get("schema_version", 1),
+    }
+
+
+def _symbol_config(view_type: str, options: ViewConfigOptions, schema: ViewSchema) -> MutableViewConfig:
+    entry = str(options.get("entry", schema.default_entry or "symbol.monata.json"))
+    if entry.endswith(".toml"):
+        raise ValueError("symbol.toml views are not supported; use symbol.monata.json")
+    return {
+        "entry": entry,
+        "format": "monata-symbol-json",
+        "schema_version": options.get("schema_version", 1),
+        "generated": bool(options.get("generated", True)),
     }
 
 
@@ -466,24 +440,19 @@ def _testbench_py_config(view_type: str, options: ViewConfigOptions, schema: Vie
     }
 
 
-def _legacy_format_for(view_type: str, config: ViewConfig) -> str | None:
+def _reject_removed_view_metadata(view_type: str, config: ViewConfig) -> None:
     if view_type == "schematic" and "class" in config:
-        return "python-schematic"
+        raise ValueError(
+            "schematic Python views require format = 'python-schematic' and trusted = true; "
+            "unformatted class metadata is not supported"
+        )
     if view_type == "testbench" and "function" in config:
-        return "python-testbench"
-    if view_type == "symbol":
-        entry = str(config.get("entry", ""))
-        if entry.endswith(".toml"):
-            return "monata-symbol-toml"
-    return None
-
-
-def _legacy_config_format_for(view_type: str, options: ViewConfigOptions) -> str | None:
-    if view_type == "symbol":
-        entry = str(options.get("entry", ""))
-        if entry.endswith(".toml"):
-            return "monata-symbol-toml"
-    return None
+        raise ValueError(
+            "testbench Python views require format = 'python-testbench' and trusted = true; "
+            "unformatted function metadata is not supported"
+        )
+    if view_type == "symbol" and str(config.get("entry", "")).endswith(".toml"):
+        raise ValueError("symbol.toml views are not supported; use symbol.monata.json")
 
 
 def _require_trusted_option(options: ViewConfigOptions, *, view_format: str) -> None:

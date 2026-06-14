@@ -13,12 +13,13 @@ from monata.library import Library
 from monata.netlist import SubCircuit
 from monata.sim.core import SimResult, SimTask, TranSpec
 from monata.sim.digital_plan import digital_task_metadata
+from monata.views.declarative import SymbolJsonView
 from monata.views.base import View
 from monata.views.digital_truth_table import DigitalTruthTableView
 from monata.views.netlist import NetlistView
 from monata.views.schematic import SchematicView
 from monata.views.simulation import SimulationView
-from monata.views.symbol import SymbolView, infer_pin_direction
+from monata.views.symbol import infer_pin_direction
 from monata.views.testbench import TestbenchView
 from monata.views.registry import ViewRegistry, get_view_factory
 
@@ -702,7 +703,7 @@ def test_digital_truth_table_view_mapping_accepts_expected_rows(tmp_path):
         "from test_views import ViewTestAnd2\n"
         "main = ViewTestAnd2\n"
     )
-    dut.create_view("schematic", cls_name="main")
+    dut.create_view("schematic", format="python-schematic", trusted=True, cls_name="main")
     cell = lib.create_cell("and2_tb")
     (cell.path / "verification.py").write_text(
         "from monata.sim.digital_table import DigitalTruthTableSpec\n"
@@ -800,21 +801,29 @@ def test_infer_pin_direction_default():
     assert infer_pin_direction("data") == "inout"
 
 
-def test_symbol_view_load(tmp_path):
+def test_symbol_json_view_load(tmp_path):
     cell_dir = tmp_path / "inverter"
     cell_dir.mkdir(parents=True)
 
-    (cell_dir / "symbol.toml").write_text(
-        '[symbol]\nname = "inverter"\n\n'
-        '[[pins]]\nname = "vin"\ndirection = "input"\n\n'
-        '[[pins]]\nname = "out"\ndirection = "output"\n'
+    (cell_dir / "symbol.monata.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "view_type": "symbol",
+                "name": "inverter",
+                "pins": [
+                    {"name": "vin", "direction": "input"},
+                    {"name": "out", "direction": "output"},
+                ],
+            }
+        )
     )
 
     cell = MagicMock()
     cell.path = cell_dir
     cell.name = "inverter"
 
-    view = SymbolView(cell=cell, entry="symbol.toml")
+    view = SymbolJsonView(cell=cell, entry="symbol.monata.json")
     result = view.load()
     assert result["name"] == "inverter"
     assert len(result["pins"]) == 2
@@ -822,43 +831,29 @@ def test_symbol_view_load(tmp_path):
     assert result["pins"][0]["direction"] == "input"
 
 
-@pytest.mark.parametrize(
-    ("body", "message"),
-    [
-        (
-            'unexpected = true\n\n[symbol]\nname = "inverter"\n',
-            "symbol.toml has unknown fields: unexpected",
-        ),
-        (
-            '[symbol]\nname = "inverter"\nunexpected = true\n',
-            "symbol table has unknown fields: unexpected",
-        ),
-        (
-            '[symbol]\nname = "inverter"\n\n'
-            '[[pins]]\nname = "vin"\ndirection = "input"\nunexpected = true\n',
-            r"symbol pins\[0\] has unknown fields: unexpected",
-        ),
-        (
-            'pins = "vin"\n\n[symbol]\nname = "inverter"\n',
-            "symbol pins must be an array of tables",
-        ),
-    ],
-)
-def test_symbol_view_load_rejects_invalid_schema(tmp_path, body, message):
+def test_symbol_json_view_load_rejects_invalid_schema(tmp_path):
     cell_dir = tmp_path / "inverter"
     cell_dir.mkdir(parents=True)
-    (cell_dir / "symbol.toml").write_text(body)
+    (cell_dir / "symbol.monata.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "view_type": "symbol",
+                "pins": "vin",
+            }
+        )
+    )
     cell = MagicMock()
     cell.path = cell_dir
     cell.name = "inverter"
 
-    view = SymbolView(cell=cell, entry="symbol.toml")
+    view = SymbolJsonView(cell=cell, entry="symbol.monata.json")
 
-    with pytest.raises(ValueError, match=message):
+    with pytest.raises(ValueError, match="expected an array"):
         view.load()
 
 
-def test_symbol_view_load_not_generated(tmp_path):
+def test_symbol_json_view_load_not_generated(tmp_path):
     cell_dir = tmp_path / "inverter"
     cell_dir.mkdir(parents=True)
 
@@ -866,7 +861,7 @@ def test_symbol_view_load_not_generated(tmp_path):
     cell.path = cell_dir
     cell.name = "inverter"
 
-    view = SymbolView(cell=cell, entry="symbol.toml")
+    view = SymbolJsonView(cell=cell, entry="symbol.monata.json")
     with pytest.raises(ViewNotGeneratedError):
         view.load()
 
