@@ -101,7 +101,7 @@ class ModelRegistry:
     Search paths (in priority order):
         1. Explicitly registered models (via register())
         2. Project-local models (working directory)
-        3. User cache (~/.cache/monata/models/)
+        3. User cache ($MONATA_HOME/cache/models)
         4. System-installed models ($CONDA_PREFIX/lib/vacask/mod/, etc.)
     """
 

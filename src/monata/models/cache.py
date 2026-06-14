@@ -11,7 +11,7 @@ from pathlib import Path
 from uuid import uuid4
 from typing import Any
 
-from monata._home import default_user_cache_root, monata_home
+from monata._home import monata_cache_dir
 from monata.models.diagnostics import ModelDiagnostic, ModelDiagnosticError
 
 _logger = logging.getLogger(__name__)
@@ -35,14 +35,11 @@ def resolve_model_cache_dir(
         return Path(env)
     if project_config is not None and str(project_config) != "auto":
         return Path(project_config)
-    root = monata_home(home)
-    if root is not None:
-        return root / "cache" / "models"
-    return default_user_cache_root() / "monata" / "models"
+    return monata_cache_dir(home=home) / "models"
 
 
 def default_cache_dir() -> Path:
-    """Return the default cache directory, respecting MONATA_HOME and XDG."""
+    """Return the default model cache directory under MONATA_HOME."""
     global _DEFAULT_CACHE_DIR
     if _DEFAULT_CACHE_DIR is None:
         _DEFAULT_CACHE_DIR = resolve_model_cache_dir()

@@ -18,8 +18,8 @@ users install in their own environments.
 - Built-in ngspice subprocess backend, plus a shared-library ngspice runner
   for environments that provide `libngspice`.
 - Plotting and HDF5 result import/export available from the default install.
-- Optional technology-library packages, such as `monata-techlib`, for reusable
-  model metadata and redistributed model assets.
+- Local technology-library resource directories for reusable model metadata and
+  model-card assets.
 
 ## Environment Setup
 
@@ -27,35 +27,46 @@ Monata supports Python 3.11 and 3.12. The Python package does not bundle
 simulator binaries, so set up the runtime environment before running simulation
 examples.
 
-Choose one of these paths. The agent-managed pixi path is recommended for new
-projects. The existing-environment path is only for users who have already
-built and installed the required circuit packages into the Python environment
-they plan to use.
+Choose one of these environment paths. The agent-managed pixi path is
+recommended for new projects. The existing-environment path is only for users
+who have already built and installed the required circuit packages into the
+Python environment they plan to use.
 
 ### Recommended: agent-managed pixi environment
 
-This is the recommended path when you use Codex, Claude Code, or another coding
-agent that can install skills. Install the `conda-build` skill from
-`lizhangmai/skills` together with the user-facing `monata-sim-env` skill, then
-ask the agent to create the Monata runtime environment for you. The agent
-should build only the native packages required by the requested workflow.
+This is the recommended environment path when you use Codex, Claude Code, or
+another coding agent that can install skills or plugins. Install both
+`monata-sim-env` and `conda-build` from
+[`lizhangmai/skills`](https://github.com/lizhangmai/skills), then ask the agent
+to create the Monata runtime environment for you. These install methods are
+equivalent; use whichever one fits your agent.
 
-In Claude Code, install the skill through the plugin marketplace:
+Open Skills CLI, for generic skill-aware agents:
+
+```bash
+npx skills@latest add lizhangmai/skills --skill monata-sim-env --skill conda-build
+```
+
+Codex plugin marketplace:
+
+```bash
+codex plugin marketplace add https://github.com/lizhangmai/skills --ref main
+codex plugin list --marketplace lizhangmai --available --json
+codex plugin add monata-sim-env@lizhangmai
+codex plugin add conda-build@lizhangmai
+```
+
+Claude Code plugin marketplace:
 
 ```text
 /plugin marketplace add https://github.com/lizhangmai/skills
+/plugin marketplace update lizhangmai
 /plugin install monata-sim-env@lizhangmai
 /plugin install conda-build@lizhangmai
+/reload-plugins
 ```
 
-In Codex or another agent, install both skills with the open skills installer
-or that agent's normal skill-install flow:
-
-```bash
-npx skills add lizhangmai/skills --skill monata-sim-env --skill conda-build
-```
-
-Then open the agent in your project workspace and ask:
+Then start a fresh agent session in your project workspace and ask:
 
 ```text
 Use the monata-sim-env skill to set up this Monata environment.
@@ -139,10 +150,32 @@ Monata can use:
 - a user-installed `openvaf-r` executable to compile Verilog-A models into
   OSDI artifacts used by ngspice workflows;
 - a user-provided `libngspice` shared library through `ngspice-shared`;
-- separately installed technology-library packages such as `monata-techlib`.
+- user-managed technology-library resources loaded from explicit paths,
+  `MONATA_TECHLIB_PATH`, or the user Monata techlib directory.
 
 Users and downstream packagers remain responsible for installing external tools
 and complying with their upstream licenses.
+
+## Technology Libraries
+
+Monata can load reusable technology libraries from local resource directories
+that contain `techlib.toml` and referenced model files. This keeps PDK-like
+resources outside the Python package while preserving a stable loader API.
+
+```python
+from monata.techlib.registry import TechlibRegistry
+
+registry = TechlibRegistry(
+    search_paths=["./techlibs"],
+    auto_discover=False,
+)
+print(registry.list_techlibs())
+```
+
+For user-level discovery, set `MONATA_TECHLIB_PATH` to one or more techlib
+collection directories, separated by the platform path separator. Monata also
+checks `$MONATA_HOME/techlibs`. When `MONATA_HOME` is not set, Monata treats it
+as `~/.monata`.
 
 ## Documentation
 

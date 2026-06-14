@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from importlib import metadata
+import os
 from pathlib import Path
 from typing import Any, Iterable, Mapping, cast
 
@@ -11,6 +12,7 @@ try:
 except ImportError:
     import tomli as tomllib  # type: ignore[no-redef]
 
+from monata._home import monata_techlib_dir
 from monata._paths import validate_path_segment
 from monata.corner import CornerLike, OperatingCorner, coerce_operating_corner
 from monata.models.manifest import ModelSelection
@@ -30,6 +32,7 @@ from monata.techlib.schema import (
 )
 
 ENTRY_POINT_GROUP = "monata.techlibs"
+TECHLIB_PATH_ENV = "MONATA_TECHLIB_PATH"
 _TECHLIB_ROOT_FIELDS = frozenset({
     "techlib",
     "model_decks",
@@ -310,7 +313,8 @@ class TechlibRegistry:
         self._search_paths: list[Path] = []
         self._discovery_errors: list[TechlibDiscoveryError] = []
         self._strict_discovery = strict_discovery
-        for path in search_paths or ():
+        paths = _default_search_paths() if search_paths is None else search_paths
+        for path in paths:
             self.add_search_path(path)
         if auto_discover:
             self.discover_entry_points()
@@ -466,6 +470,15 @@ def _entry_points(group: str):
     return cast(Any, entry_points).get(group, ())
 
 
+def _default_search_paths() -> tuple[Path, ...]:
+    paths: list[Path] = []
+    for value in os.environ.get(TECHLIB_PATH_ENV, "").split(os.pathsep):
+        if value:
+            paths.append(Path(value).expanduser())
+    paths.append(monata_techlib_dir())
+    return tuple(paths)
+
+
 def _entry_point_paths(value: Any) -> list[Path]:
     if callable(value):
         value = value()
@@ -496,6 +509,7 @@ def _attachments(items: Iterable[TechlibAttachment | str]) -> list[TechlibAttach
 
 __all__ = [
     "ENTRY_POINT_GROUP",
+    "TECHLIB_PATH_ENV",
     "Techlib",
     "TechlibRegistry",
 ]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any, cast
 
 import pytest
@@ -394,6 +395,54 @@ def test_registry_explicit_search_path_and_entry_point_discovery(tmp_path, monke
     )
     discovered = TechlibRegistry(search_paths=[], auto_discover=True)
     assert discovered.list_techlibs() == ["PTM_MG"]
+
+
+def test_registry_uses_monata_techlib_path_when_search_paths_are_default(tmp_path, monkeypatch):
+    first = _write_minimal_techlib(tmp_path / "first", name="PTM_MG")
+    second = _write_minimal_techlib(tmp_path / "second", name="PTM_BULK")
+    monkeypatch.setenv(
+        "MONATA_TECHLIB_PATH",
+        os.pathsep.join([str(first.parent), str(second.parent)]),
+    )
+
+    registry = TechlibRegistry(auto_discover=False)
+
+    assert registry.list_techlibs() == ["PTM_BULK", "PTM_MG"]
+
+
+def test_registry_uses_monata_home_techlib_dir_when_present(tmp_path, monkeypatch):
+    home = tmp_path / "monata-home"
+    _write_minimal_techlib(home / "techlibs", name="PTM_MG")
+    monkeypatch.setenv("MONATA_HOME", str(home))
+    monkeypatch.delenv("MONATA_TECHLIB_PATH", raising=False)
+
+    registry = TechlibRegistry(auto_discover=False)
+
+    assert registry.list_techlibs() == ["PTM_MG"]
+
+
+def test_registry_uses_default_monata_home_techlib_dir(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    _write_minimal_techlib(
+        home / ".monata" / "techlibs",
+        name="PTM_MG",
+    )
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("MONATA_HOME", raising=False)
+    monkeypatch.delenv("MONATA_TECHLIB_PATH", raising=False)
+
+    registry = TechlibRegistry(auto_discover=False)
+
+    assert registry.list_techlibs() == ["PTM_MG"]
+
+
+def test_registry_explicit_empty_search_paths_skip_default_resource_paths(tmp_path, monkeypatch):
+    _write_minimal_techlib(tmp_path, name="PTM_MG")
+    monkeypatch.setenv("MONATA_TECHLIB_PATH", str(tmp_path))
+
+    registry = TechlibRegistry(search_paths=[], auto_discover=False)
+
+    assert registry.list_techlibs() == []
 
 
 def test_registry_records_broken_optional_entry_points_without_failing(tmp_path, monkeypatch):

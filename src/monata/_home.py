@@ -6,42 +6,40 @@ import os
 from pathlib import Path
 
 
-def monata_home(explicit: str | Path | None = None) -> Path | None:
-    """Return the configured Monata home root, if one is configured."""
+def monata_home(explicit: str | Path | None = None) -> Path:
+    """Return the configured or default Monata home root."""
 
     if explicit is not None:
         return Path(explicit)
     env = os.environ.get("MONATA_HOME")
-    return Path(env) if env else None
+    return Path(env) if env else default_monata_home()
 
 
-def default_user_cache_root() -> Path:
-    """Return the platform-neutral user cache root used when MONATA_HOME is unset."""
+def default_monata_home() -> Path:
+    """Return the fixed default used when MONATA_HOME is unset."""
 
-    xdg = os.environ.get("XDG_CACHE_HOME")
-    if xdg:
-        return Path(xdg)
-    return Path(os.path.expanduser("~/.cache"))
+    return Path(os.path.expanduser("~/.monata"))
 
 
 def monata_cache_dir(*, home: str | Path | None = None) -> Path:
     """Return the generic Monata cache directory for a configured home/default."""
 
-    root = monata_home(home)
-    if root is not None:
-        return root / "cache"
-    return default_user_cache_root() / "monata"
+    return monata_home(home) / "cache"
 
 
-def monata_registry_dir(*, home: str | Path | None = None) -> Path | None:
-    """Return the optional Monata registry directory when a home root exists."""
+def monata_registry_dir(*, home: str | Path | None = None) -> Path:
+    """Return the Monata registry directory under the home root."""
 
-    root = monata_home(home)
-    return root / "registry" if root is not None else None
+    return monata_home(home) / "registry"
 
 
-def monata_logs_dir(*, home: str | Path | None = None) -> Path | None:
-    """Return the optional Monata logs directory when a home root exists."""
+def monata_logs_dir(*, home: str | Path | None = None) -> Path:
+    """Return the Monata logs directory under the home root."""
 
-    root = monata_home(home)
-    return root / "logs" if root is not None else None
+    return monata_home(home) / "logs"
+
+
+def monata_techlib_dir(*, home: str | Path | None = None) -> Path:
+    """Return the user-level Monata technology-library resource directory."""
+
+    return monata_home(home) / "techlibs"

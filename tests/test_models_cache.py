@@ -35,7 +35,6 @@ def test_model_cache_lookup_store_and_metadata(tmp_path):
 
 def test_model_cache_resolution_honors_monata_home_and_specific_override(tmp_path, monkeypatch):
     monkeypatch.delenv("MONATA_MODEL_CACHE", raising=False)
-    monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
     monkeypatch.setenv("MONATA_HOME", str(tmp_path / "home"))
     reset_default_cache_dir_for_tests()
 
@@ -50,6 +49,15 @@ def test_model_cache_resolution_honors_monata_home_and_specific_override(tmp_pat
     reset_default_cache_dir_for_tests()
 
     assert resolve_model_cache_dir(project_config=tmp_path / "project-cache") == tmp_path / "project-cache"
+
+
+def test_model_cache_default_stays_under_default_monata_home(tmp_path, monkeypatch):
+    monkeypatch.delenv("MONATA_HOME", raising=False)
+    monkeypatch.delenv("MONATA_MODEL_CACHE", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    reset_default_cache_dir_for_tests()
+
+    assert resolve_model_cache_dir() == tmp_path / "home" / ".monata/cache/models"
 
 
 def test_model_cache_marks_new_cache_directory(tmp_path):
