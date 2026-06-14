@@ -354,7 +354,8 @@ def test_release_metadata_marks_0_1_as_stable():
     pyproject = tomllib.loads((project_root / "pyproject.toml").read_text(encoding="utf-8"))
     classifiers = set(pyproject["project"]["classifiers"])
 
-    assert pyproject["project"]["version"] == "0.1.0"
+    major, minor, *_ = pyproject["project"]["version"].split(".")
+    assert (major, minor) == ("0", "1")
     assert "Development Status :: 5 - Production/Stable" in classifiers
     assert "Development Status :: 3 - Alpha" not in classifiers
 
