@@ -11,11 +11,26 @@ from typing import Any
 
 
 class View:
-    def __init__(self, view_type: str, cell, entry: str, generated: bool = False):
+    def __init__(
+        self,
+        view_type: str,
+        cell,
+        entry: str,
+        generated: bool = False,
+        *,
+        format: str | None = None,
+        trusted: bool = False,
+        schema_version: int | None = None,
+        legacy_trusted: bool = False,
+    ):
         self._view_type = view_type
         self._cell = cell
         self._entry = entry
         self._generated = generated
+        self._format = format
+        self._trusted = bool(trusted)
+        self._schema_version = schema_version
+        self._legacy_trusted = bool(legacy_trusted)
 
     @property
     def view_type(self) -> str:
@@ -32,6 +47,22 @@ class View:
     @property
     def generated(self) -> bool:
         return self._generated
+
+    @property
+    def format(self) -> str | None:
+        return self._format
+
+    @property
+    def trusted(self) -> bool:
+        return self._trusted
+
+    @property
+    def schema_version(self) -> int | None:
+        return self._schema_version
+
+    @property
+    def legacy_trusted(self) -> bool:
+        return self._legacy_trusted
 
     def path(self) -> Path:
         return self._cell.path
@@ -104,6 +135,16 @@ class View:
     def load(self):
         raise NotImplementedError(
             "load() not implemented for base View. Use a specific view subclass."
+        )
+
+    def read(self) -> Any:
+        raise TypeError(
+            f"read() is only valid on declarative data views, not '{self._view_type}'"
+        )
+
+    def load_trusted(self):
+        raise TypeError(
+            f"load_trusted() is only valid on trusted executable views, not '{self._view_type}'"
         )
 
     def run(self) -> Any:

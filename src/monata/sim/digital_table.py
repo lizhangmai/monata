@@ -508,5 +508,10 @@ def resolve_digital_truth_table_mode(mode: str) -> DigitalTruthTableMode:
 
 def _load_schematic_from_library(library: Any, cell_name: str, run_config: Any) -> SubCircuitInput:
     del run_config
-    schematic_cls = library[cell_name]["schematic"].load()
-    return schematic_cls
+    from monata.views.declarative import schematic_view_to_subcircuit
+
+    return schematic_view_to_subcircuit(
+        library[cell_name]["schematic"],
+        allow_trusted_python=True,
+        reason="digital_truth_table spec",
+    )

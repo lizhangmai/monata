@@ -349,13 +349,13 @@ def test_ci_matrix_covers_advertised_python_classifiers():
         assert f'"{version}"' in ci_text
 
 
-def test_release_metadata_marks_0_1_as_stable():
+def test_release_metadata_marks_0_2_as_stable():
     project_root = Path(__file__).resolve().parents[1]
     pyproject = tomllib.loads((project_root / "pyproject.toml").read_text(encoding="utf-8"))
     classifiers = set(pyproject["project"]["classifiers"])
 
     major, minor, *_ = pyproject["project"]["version"].split(".")
-    assert (major, minor) == ("0", "1")
+    assert (major, minor) == ("0", "2")
     assert "Development Status :: 5 - Production/Stable" in classifiers
     assert "Development Status :: 3 - Alpha" not in classifiers
 
@@ -508,8 +508,12 @@ def test_docs_call_out_trusted_python_view_loading():
 
     readme = (project_root / "README.md").read_text()
 
-    assert "view loading is\nnot sandboxed" in readme
-    assert "only trusted libraries" in readme
+    assert "schematic.monata.json" in readme
+    assert "parsed and validated without executing project code" in readme
+    assert "load_trusted()" in readme
+    assert "trusted = true" in readme
+    assert "view\nloading is not sandboxed" in readme
+    assert "trusted libraries" in readme
     assert "https://github.com/lizhangmai/monata-docs" in readme
     assert "docs/reference/api-boundaries.md" in readme
 

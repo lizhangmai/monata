@@ -21,13 +21,24 @@ def _view_type_key(view_type: object) -> str:
     return validate_path_segment(view_type, "view type")
 
 
+def _format_key(view_format: object) -> str:
+    if not isinstance(view_format, str) or not view_format:
+        raise ValueError("view format must be a non-empty string")
+    if any(char.isspace() for char in view_format) or any(char in view_format for char in "\r\n"):
+        raise ValueError("view format must not contain whitespace or newlines")
+    return view_format
+
+
 @dataclass(frozen=True)
 class ViewSchema:
     """Declarative owner metadata for a view type."""
 
     factory: ViewFactory
     default_entry: str | None = None
+    view_format: str | None = None
     generated: bool = False
+    trusted: bool = False
+    schema_version: int | None = None
     config_factory: ViewConfigFactory | None = None
     generator: ViewGenerator | None = None
 
@@ -37,8 +48,16 @@ class ViewSchema:
 
         entry = options.get("entry", self.default_entry or f"{view_type}.py")
         config: MutableViewConfig = {"entry": entry}
+        if self.view_format is not None:
+            config["format"] = options.get("format", self.view_format)
         if self.generated:
             config["generated"] = bool(options.get("generated", True))
+        if self.trusted:
+            config["trusted"] = bool(options.get("trusted", True))
+        elif "trusted" in options:
+            config["trusted"] = bool(options["trusted"])
+        if self.schema_version is not None:
+            config["schema_version"] = options.get("schema_version", self.schema_version)
         return config
 
 
@@ -47,6 +66,7 @@ class ViewRegistry:
 
     def __init__(self) -> None:
         self._schemas: dict[str, ViewSchema] = {}
+        self._formats: dict[str, ViewSchema] = {}
 
     def register(
         self,
@@ -55,42 +75,86 @@ class ViewRegistry:
         *,
         replace: bool = False,
         default_entry: str | None = None,
+        view_format: str | None = None,
         generated: bool = False,
+        trusted: bool = False,
+        schema_version: int | None = None,
         config_factory: ViewConfigFactory | None = None,
         generator: ViewGenerator | None = None,
     ) -> None:
         key = _view_type_key(view_type)
         if key in self._schemas and not replace:
             raise ValueError(f"view type already registered: {key}")
-        self._schemas[key] = ViewSchema(
+        fmt = _format_key(view_format) if view_format is not None else None
+        if fmt is not None and fmt in self._formats and not replace:
+            raise ValueError(f"view format already registered: {fmt}")
+        if replace and key in self._schemas:
+            old = self._schemas[key]
+            self._formats = {name: schema for name, schema in self._formats.items() if schema is not old}
+        schema = ViewSchema(
             factory=factory,
             default_entry=default_entry,
+            view_format=fmt,
             generated=generated,
+            trusted=trusted,
+            schema_version=schema_version,
             config_factory=config_factory,
             generator=generator,
         )
+        self._schemas[key] = schema
+        if fmt is not None:
+            self._formats[fmt] = schema
 
     def unregister(self, view_type: str) -> None:
-        self._schemas.pop(_view_type_key(view_type), None)
+        schema = self._schemas.pop(_view_type_key(view_type), None)
+        if schema is not None:
+            self._formats = {name: item for name, item in self._formats.items() if item is not schema}
 
     def get_schema(self, view_type: str) -> ViewSchema | None:
         return self._schemas.get(_view_type_key(view_type))
+
+    def get_schema_for_format(self, view_format: str) -> ViewSchema | None:
+        return self._formats.get(_format_key(view_format))
 
     def get_factory(self, view_type: str) -> ViewFactory | None:
         schema = self.get_schema(view_type)
         return schema.factory if schema is not None else None
 
     def create_config(self, view_type: str, options: ViewConfigOptions) -> MutableViewConfig:
-        schema = self.get_schema(view_type)
+        schema = None
+        requested_format = options.get("format")
+        if requested_format is not None:
+            schema = self.get_schema_for_format(str(requested_format))
+            if schema is None:
+                raise ValueError(f"unknown view format: {requested_format}")
+        else:
+            inferred = _legacy_config_format_for(view_type, options)
+            if inferred is not None:
+                schema = self.get_schema_for_format(inferred)
+        if schema is None:
+            schema = self.get_schema(view_type)
         if schema is None:
             raise ValueError(f"unknown view type: {view_type}")
         return schema.create_config(view_type, options)
 
     def create(self, cell: Any, view_type: str, config: ViewConfig) -> Any:
-        schema = self.get_schema(view_type)
+        schema = self._schema_for_view_config(view_type, config)
         if schema is None:
             raise ViewNotFoundError(view_type, cell.name)
         return schema.factory(cell, config)
+
+    def _schema_for_view_config(self, view_type: str, config: ViewConfig) -> ViewSchema | None:
+        if "format" in config:
+            view_format = _format_key(config["format"])
+            _validate_trusted_format(view_format, config)
+            schema = self.get_schema_for_format(view_format)
+            if schema is None:
+                raise ValueError(f"unknown view format: {view_format}")
+            return schema
+        inferred = _legacy_format_for(view_type, config)
+        if inferred is not None:
+            return self.get_schema_for_format(inferred)
+        return self.get_schema(view_type)
 
     def generate(self, cell: Any, view_type: str, **kwargs: Any) -> Path:
         schema = self.get_schema(view_type)
@@ -115,7 +179,10 @@ def register_view_type(
     *,
     replace: bool = False,
     default_entry: str | None = None,
+    view_format: str | None = None,
     generated: bool = False,
+    trusted: bool = False,
+    schema_version: int | None = None,
     config_factory: ViewConfigFactory | None = None,
     generator: ViewGenerator | None = None,
 ) -> None:
@@ -124,7 +191,10 @@ def register_view_type(
         factory,
         replace=replace,
         default_entry=default_entry,
+        view_format=view_format,
         generated=generated,
+        trusted=trusted,
+        schema_version=schema_version,
         config_factory=config_factory,
         generator=generator,
     )
@@ -157,33 +227,66 @@ def generate_registered_view(cell: Any, view_type: str, **kwargs: Any) -> Path:
 def _register_defaults() -> None:
     register_view_type(
         "schematic",
-        _schematic_view,
+        _schematic_json_view,
         replace=True,
-        default_entry="schematic.py",
+        default_entry="schematic.monata.json",
+        view_format="monata-schematic-json",
+        schema_version=1,
         config_factory=_schematic_config,
     )
     register_view_type(
+        "schematic_py",
+        _schematic_python_view,
+        replace=True,
+        default_entry="schematic.py",
+        view_format="python-schematic",
+        trusted=True,
+        config_factory=_schematic_py_config,
+    )
+    register_view_type(
         "testbench",
-        _testbench_view,
+        _testbench_json_view,
+        replace=True,
+        default_entry="testbench.monata.json",
+        view_format="monata-testbench-json",
+        schema_version=1,
+        config_factory=_testbench_config,
+    )
+    register_view_type(
+        "testbench_py",
+        _testbench_python_view,
         replace=True,
         default_entry="testbench.py",
-        config_factory=_testbench_config,
+        view_format="python-testbench",
+        trusted=True,
+        config_factory=_testbench_py_config,
     )
     register_view_type(
         "netlist",
         _netlist_view,
         replace=True,
         default_entry="netlist.cir",
+        view_format="spice",
         generated=True,
         generator=_generate_netlist,
     )
     register_view_type(
         "symbol",
+        _symbol_json_view,
+        replace=True,
+        default_entry="symbol.monata.json",
+        view_format="monata-symbol-json",
+        schema_version=1,
+        generated=True,
+        generator=_generate_symbol,
+    )
+    register_view_type(
+        "symbol_toml",
         _symbol_view,
         replace=True,
         default_entry="symbol.toml",
+        view_format="monata-symbol-toml",
         generated=True,
-        generator=_generate_symbol,
     )
     register_view_type(
         "simulation",
@@ -201,16 +304,54 @@ def _register_defaults() -> None:
     )
 
 
-def _schematic_view(cell: Any, cfg: ViewConfig) -> Any:
+def _schematic_json_view(cell: Any, cfg: ViewConfig) -> Any:
+    from monata.views.declarative import SchematicJsonView
+
+    return SchematicJsonView(
+        cell=cell,
+        entry=str(cfg["entry"]),
+        generated=bool(cfg.get("generated", False)),
+        schema_version=_optional_int(cfg.get("schema_version")),
+    )
+
+
+def _schematic_python_view(cell: Any, cfg: ViewConfig) -> Any:
     from monata.views.schematic import SchematicView
 
-    return SchematicView(cell=cell, entry=str(cfg["entry"]), cls_name=str(cfg["class"]))
+    explicit_format = cfg.get("format") == "python-schematic"
+    trusted = _trusted_python_config(cfg, view_format="python-schematic") if explicit_format else True
+    return SchematicView(
+        cell=cell,
+        entry=str(cfg["entry"]),
+        cls_name=str(cfg["class"]),
+        trusted=trusted,
+        legacy_trusted=not explicit_format,
+    )
 
 
-def _testbench_view(cell: Any, cfg: ViewConfig) -> Any:
+def _testbench_json_view(cell: Any, cfg: ViewConfig) -> Any:
+    from monata.views.declarative import TestbenchJsonView
+
+    return TestbenchJsonView(
+        cell=cell,
+        entry=str(cfg["entry"]),
+        generated=bool(cfg.get("generated", False)),
+        schema_version=_optional_int(cfg.get("schema_version")),
+    )
+
+
+def _testbench_python_view(cell: Any, cfg: ViewConfig) -> Any:
     from monata.views.testbench import TestbenchView
 
-    return TestbenchView(cell=cell, entry=str(cfg["entry"]), function_name=str(cfg["function"]))
+    explicit_format = cfg.get("format") == "python-testbench"
+    trusted = _trusted_python_config(cfg, view_format="python-testbench") if explicit_format else True
+    return TestbenchView(
+        cell=cell,
+        entry=str(cfg["entry"]),
+        function_name=str(cfg["function"]),
+        trusted=trusted,
+        legacy_trusted=not explicit_format,
+    )
 
 
 def _netlist_view(cell: Any, cfg: ViewConfig) -> Any:
@@ -223,6 +364,17 @@ def _symbol_view(cell: Any, cfg: ViewConfig) -> Any:
     from monata.views.symbol import SymbolView
 
     return SymbolView(cell=cell, entry=str(cfg["entry"]))
+
+
+def _symbol_json_view(cell: Any, cfg: ViewConfig) -> Any:
+    from monata.views.declarative import SymbolJsonView
+
+    return SymbolJsonView(
+        cell=cell,
+        entry=str(cfg["entry"]),
+        generated=bool(cfg.get("generated", True)),
+        schema_version=_optional_int(cfg.get("schema_version")),
+    )
 
 
 def _simulation_view(cell: Any, cfg: ViewConfig) -> Any:
@@ -251,19 +403,103 @@ def _digital_truth_table_view(cell: Any, cfg: ViewConfig) -> Any:
 
 
 def _schematic_config(view_type: str, options: ViewConfigOptions, schema: ViewSchema) -> MutableViewConfig:
+    if options.get("format") == "monata-schematic-json" and any(key in options for key in ("cls_name", "class")):
+        raise ValueError("monata-schematic-json views cannot include Python class metadata; use schematic_py with trusted = true")
     if "cls_name" not in options:
-        raise KeyError("cls_name")
+        return {
+            "entry": options.get("entry", schema.default_entry or "schematic.monata.json"),
+            "format": "monata-schematic-json",
+            "schema_version": options.get("schema_version", 1),
+        }
     return {
-        "entry": options.get("entry", schema.default_entry or f"{view_type}.py"),
+        "entry": options.get("entry", "schematic.py"),
         "class": options["cls_name"],
     }
 
 
 def _testbench_config(view_type: str, options: ViewConfigOptions, schema: ViewSchema) -> MutableViewConfig:
+    entry = str(options.get("entry", schema.default_entry or "testbench.monata.json"))
+    if options.get("format") == "monata-testbench-json":
+        if any(key in options for key in ("function_name", "function")):
+            raise ValueError(
+                "monata-testbench-json views cannot include Python function metadata; "
+                "use testbench_py with trusted = true"
+            )
+        return {
+            "entry": entry,
+            "format": "monata-testbench-json",
+            "schema_version": options.get("schema_version", 1),
+        }
+    if (
+        "function_name" not in options and not entry.endswith(".py")
+    ):
+        return {
+            "entry": entry,
+            "format": "monata-testbench-json",
+            "schema_version": options.get("schema_version", 1),
+        }
     return {
-        "entry": options.get("entry", schema.default_entry or f"{view_type}.py"),
+        "entry": options.get("entry", "testbench.py"),
         "function": options.get("function_name", "main"),
     }
+
+
+def _schematic_py_config(view_type: str, options: ViewConfigOptions, schema: ViewSchema) -> MutableViewConfig:
+    _require_trusted_option(options, view_format="python-schematic")
+    if "cls_name" not in options:
+        raise KeyError("cls_name")
+    return {
+        "entry": options.get("entry", schema.default_entry or "schematic.py"),
+        "format": "python-schematic",
+        "trusted": True,
+        "class": options["cls_name"],
+    }
+
+
+def _testbench_py_config(view_type: str, options: ViewConfigOptions, schema: ViewSchema) -> MutableViewConfig:
+    _require_trusted_option(options, view_format="python-testbench")
+    return {
+        "entry": options.get("entry", schema.default_entry or "testbench.py"),
+        "format": "python-testbench",
+        "trusted": True,
+        "function": options.get("function_name", "main"),
+    }
+
+
+def _legacy_format_for(view_type: str, config: ViewConfig) -> str | None:
+    if view_type == "schematic" and "class" in config:
+        return "python-schematic"
+    if view_type == "testbench" and "function" in config:
+        return "python-testbench"
+    if view_type == "symbol":
+        entry = str(config.get("entry", ""))
+        if entry.endswith(".toml"):
+            return "monata-symbol-toml"
+    return None
+
+
+def _legacy_config_format_for(view_type: str, options: ViewConfigOptions) -> str | None:
+    if view_type == "symbol":
+        entry = str(options.get("entry", ""))
+        if entry.endswith(".toml"):
+            return "monata-symbol-toml"
+    return None
+
+
+def _require_trusted_option(options: ViewConfigOptions, *, view_format: str) -> None:
+    if options.get("trusted") is not True:
+        raise ValueError(f"{view_format} views require trusted = true")
+
+
+def _validate_trusted_format(view_format: str, config: ViewConfig) -> None:
+    if view_format in {"python-schematic", "python-testbench"}:
+        _trusted_python_config(config, view_format=view_format)
+
+
+def _trusted_python_config(config: ViewConfig, *, view_format: str) -> bool:
+    if config.get("trusted") is not True:
+        raise ValueError(f"{view_format} views require trusted = true")
+    return True
 
 
 def _simulation_config(view_type: str, options: ViewConfigOptions, schema: ViewSchema) -> MutableViewConfig:

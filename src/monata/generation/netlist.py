@@ -4,33 +4,39 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+import warnings
 
 from monata._types import NetlistProjectionMode
 from monata.netlist import Circuit, SubCircuit, render_ngspice
+from monata.views.declarative import schematic_view_to_circuit
 
 
 def generate_netlist(
     cell,
     *,
     force: bool = False,
-    format: str = "cir",
+    output_format: str = "cir",
+    format: str | None = None,
     projection: NetlistProjectionMode = "none",
     registry: Any = None,
     corner: Any = None,
 ) -> Path:
-    schematic_view = cell["schematic"]
-    factory_cls = schematic_view.load()
-
-    if isinstance(factory_cls, type):
-        native_netlist = factory_cls()
-    else:
-        native_netlist = factory_cls
-
-    if not isinstance(native_netlist, (Circuit, SubCircuit)):
-        raise TypeError(
-            "schematic must define a monata.netlist Circuit or SubCircuit; "
-            "legacy schematic factories are no longer supported"
+    if format is not None:
+        if output_format != "cir":
+            raise ValueError("use only one of format or output_format")
+        warnings.warn(
+            "generate_netlist(format=...) is deprecated; use output_format=...",
+            DeprecationWarning,
+            stacklevel=2,
         )
+        output_format = format
+
+    schematic_view = cell["schematic"]
+    native_netlist = schematic_view_to_circuit(
+        schematic_view,
+        allow_trusted_python=True,
+        reason="generate_netlist",
+    )
     _apply_generation_projection(
         cell,
         native_netlist,
@@ -39,13 +45,14 @@ def generate_netlist(
         corner=corner,
     )
 
-    suffix = format.lstrip(".") or "cir"
+    suffix = output_format.lstrip(".") or "cir"
     entry = f"netlist.{suffix}"
     return cell.write_generated_view(
         "netlist",
         entry=entry,
         content=render_ngspice(native_netlist),
         force=force,
+        metadata={"format": "spice"},
     )
 
 

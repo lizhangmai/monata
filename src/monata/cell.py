@@ -126,10 +126,21 @@ class Cell:
         write_cell_config(self._path / "cell.toml", config)
         self._config = None
 
-    def _register_generated_view(self, view_type: str, *, entry: str) -> None:
+    def _register_generated_view(
+        self,
+        view_type: str,
+        *,
+        entry: str,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> None:
         self._set_view_config(
             view_type,
-            create_registered_view_config(view_type, entry=entry, generated=True),
+            create_registered_view_config(
+                view_type,
+                entry=entry,
+                generated=True,
+                **dict(metadata or {}),
+            ),
         )
 
     def write_generated_view(
@@ -139,13 +150,14 @@ class Cell:
         entry: str,
         content: str,
         force: bool = False,
+        metadata: Mapping[str, Any] | None = None,
     ) -> Path:
         """Write a generated view artifact and commit its view metadata."""
 
         self._ensure_generated_view_writable(view_type, force=force)
         view_path = self._path / entry
         view_path.write_text(content)
-        self._register_generated_view(view_type, entry=entry)
+        self._register_generated_view(view_type, entry=entry, metadata=metadata)
         return view_path
 
     def create_view(self, view_type: str, **kwargs):
@@ -160,8 +172,9 @@ class Cell:
     def generate_netlist(
         self,
         force: bool = False,
-        format: str = "cir",
+        output_format: str = "cir",
         *,
+        format: str | None = None,
         projection: NetlistProjectionMode = "none",
         registry: Any = None,
         corner: Any = None,
@@ -169,6 +182,7 @@ class Cell:
         return self.generate_view(
             "netlist",
             force=force,
+            output_format=output_format,
             format=format,
             projection=projection,
             registry=registry,

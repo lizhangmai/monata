@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "monata"
-version = "0.1.1"
+version = "0.2.0"
 description = "A lightweight EDA framework for circuit design and SPICE simulation workflows"
 readme = "README.md"
 license = "MIT"

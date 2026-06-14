@@ -35,16 +35,18 @@ Python environment they plan to use.
 ### Recommended: agent-managed pixi environment
 
 This is the recommended environment path when you use Codex, Claude Code, or
-another coding agent that can install skills or plugins. Install both
-`monata-sim-env` and `conda-build` from
+another coding agent that can install skills or plugins. Install
+`monata-sim-env` from
 [`lizhangmai/skills`](https://github.com/lizhangmai/skills), then ask the agent
-to create the Monata runtime environment for you. These install methods are
-equivalent; use whichever one fits your agent.
+to create the complete Monata runtime environment for you. The skill builds or
+reuses required circuit-tool packages, configures pixi, installs Monata,
+bootstraps PTM techlibs, generates `monata_readme_demo.py`, and runs it. These
+install methods are equivalent; use whichever one fits your agent.
 
 Open Skills CLI, for generic skill-aware agents:
 
 ```bash
-npx skills@latest add lizhangmai/skills --skill monata-sim-env --skill conda-build
+npx skills@latest add lizhangmai/skills --skill monata-sim-env
 ```
 
 Codex plugin marketplace:
@@ -53,7 +55,6 @@ Codex plugin marketplace:
 codex plugin marketplace add https://github.com/lizhangmai/skills --ref main
 codex plugin list --marketplace lizhangmai --available --json
 codex plugin add monata-sim-env@lizhangmai
-codex plugin add conda-build@lizhangmai
 ```
 
 Claude Code plugin marketplace:
@@ -62,15 +63,16 @@ Claude Code plugin marketplace:
 /plugin marketplace add https://github.com/lizhangmai/skills
 /plugin marketplace update lizhangmai
 /plugin install monata-sim-env@lizhangmai
-/plugin install conda-build@lizhangmai
 /reload-plugins
 ```
 
 Then start a fresh agent session in your project workspace and ask:
 
 ```text
-Use the monata-sim-env skill to set up this Monata environment.
+Use the monata-sim-env skill to set up this complete Monata environment,
+bootstrap PTM techlibs, generate monata_readme_demo.py, and run it.
 CONDA_BUILD_OUTPUT_DIR=<absolute-path-you-choose>
+MONATA_HOME=<optional-absolute-monata-home>
 ```
 
 Replace `<absolute-path-you-choose>` with a real absolute path before sending
@@ -78,7 +80,8 @@ the prompt. If the prompt does not include `CONDA_BUILD_OUTPUT_DIR=...`, the
 agent should ask for it before running build, pixi, or install commands. The
 skill inspects the Monata workspace before choosing tool packages; the current
 Monata baseline is `ngspice` plus `openvaf-r`. The Xyce recipe stack is not
-required for the current Monata backend.
+required for the current Monata backend. Omit `MONATA_HOME` to use
+`~/.monata`; techlibs are installed under `$MONATA_HOME/techlibs`.
 
 ### Existing simulator environment
 
@@ -103,9 +106,16 @@ Create a Monata library and build a small circuit:
 ```python
 from monata import LibraryRegistry
 from monata.netlist import Circuit
+from pathlib import Path
+import shutil
+
+demo_root = Path("monata_readme_demo_work")
+if demo_root.exists():
+    shutil.rmtree(demo_root)
+demo_root.mkdir(parents=True)
 
 registry = LibraryRegistry()
-library = registry.create_library(path="work/analog", name="analog")
+library = registry.create_library(path=demo_root / "analog", name="analog")
 cell = library.create_cell("rc_filter", description="RC low-pass filter")
 
 circuit = Circuit("rc low-pass")
@@ -129,8 +139,8 @@ task = SimTask(
 )
 
 result = LocalExecutor(max_workers=1).submit(task).result()
-if result.failed:
-    raise RuntimeError(result.error_message)
+if result.status != "ok":
+    raise RuntimeError(result.error_message or "simulation failed")
 
 print(result.waveforms["vout"])
 ```
@@ -177,6 +187,12 @@ collection directories, separated by the platform path separator. Monata also
 checks `$MONATA_HOME/techlibs`. When `MONATA_HOME` is not set, Monata treats it
 as `~/.monata`.
 
+For a managed PTM setup, use the `monata-sim-env` skill from
+[`lizhangmai/skills`](https://github.com/lizhangmai/skills). It downloads
+official PTM resources on the user's machine, generates `PTM_MG` and
+`PTM_BULK` techlibs, preserves upstream notices, verifies Monata discovery, and
+runs `monata_readme_demo.py`.
+
 ## Documentation
 
 Long-form documentation lives outside this source package:
@@ -190,10 +206,19 @@ Long-form documentation lives outside this source package:
 
 ## Security
 
-Monata project views can be Python source files. Loading schematic and testbench
-views executes that project code in the current Python process; view loading is
-not sandboxed. Open, load, generate, and simulate only trusted libraries and
-project workspaces.
+Monata 0.2 treats ordinary cellviews as declarative data by default:
+`schematic.monata.json`, `symbol.monata.json`, and `testbench.monata.json` are
+parsed and validated without executing project code. For data views, `read()`
+returns the structured payload and `load()` remains a safe parse operation.
+
+Python views are trusted executable extensions. Register them with explicit
+names and metadata such as `schematic_py = { entry = "schematic.py", format =
+"python-schematic", trusted = true, class = "Inverter" }`, then call
+`load_trusted()` or `run_trusted()` when execution is intended. Legacy
+`schematic.py` and `testbench.py` views remain supported for compatibility, but
+loading them executes that project code in the current Python process; view
+loading is not sandboxed. Open, load, generate, and simulate executable views
+only from trusted libraries and project workspaces.
 
 ## License
 

@@ -1,3 +1,5 @@
+import json
+
 import pytest
 import tomllib
 from unittest.mock import MagicMock
@@ -114,12 +116,13 @@ def test_generate_symbol(tmp_path):
     result_path = cell.generate_symbol()
 
     assert result_path.exists()
-    assert result_path.name == "symbol.toml"
+    assert result_path.name == "symbol.monata.json"
 
-    with open(result_path, "rb") as f:
-        data = tomllib.load(f)
+    data = json.loads(result_path.read_text())
 
-    assert data["symbol"]["name"] == "inverter"
+    assert data["name"] == "inverter"
+    assert data["schema_version"] == 1
+    assert data["view_type"] == "symbol"
     pins = data["pins"]
     assert len(pins) == 4
 
@@ -138,7 +141,9 @@ def test_generate_symbol_updates_cell_toml(tmp_path):
         config = tomllib.load(f)
 
     assert "symbol" in config["views"]
-    assert config["views"]["symbol"]["entry"] == "symbol.toml"
+    assert config["views"]["symbol"]["entry"] == "symbol.monata.json"
+    assert config["views"]["symbol"]["format"] == "monata-symbol-json"
+    assert config["views"]["symbol"]["schema_version"] == 1
     assert config["views"]["symbol"]["generated"] is True
 
 
@@ -196,7 +201,7 @@ def test_generate_views_for_category_owned_cell(tmp_path):
     symbol_path = cell.generate_symbol()
     netlist_path = cell.generate_netlist()
 
-    assert symbol_path == cell.path / "symbol.toml"
+    assert symbol_path == cell.path / "symbol.monata.json"
     assert netlist_path == cell.path / "netlist.cir"
     assert lib["logic/inverter"].qualified_name == "logic/inverter"
 
@@ -239,6 +244,7 @@ def test_generate_netlist_updates_cell_toml(tmp_path):
 
     assert "netlist" in config["views"]
     assert config["views"]["netlist"]["entry"] == "netlist.cir"
+    assert config["views"]["netlist"]["format"] == "spice"
     assert config["views"]["netlist"]["generated"] is True
     assert config["cell"] == {"name": "inverter", "description": "source schematic"}
     assert config["views"]["schematic"] == {"entry": "schematic.py", "class": "Inverter"}
@@ -273,5 +279,5 @@ def test_generate_view_dispatches_registered_generator(tmp_path):
 
     result_path = cell.generate_view("symbol")
 
-    assert result_path == cell.path / "symbol.toml"
+    assert result_path == cell.path / "symbol.monata.json"
     assert result_path.exists()

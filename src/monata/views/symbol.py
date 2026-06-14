@@ -48,7 +48,14 @@ def infer_pin_direction(pin_name: str) -> str:
 
 class SymbolView(View):
     def __init__(self, cell, entry: str):
-        super().__init__(view_type="symbol", cell=cell, entry=entry, generated=True)
+        super().__init__(
+            view_type="symbol",
+            cell=cell,
+            entry=entry,
+            generated=True,
+            format="monata-symbol-toml",
+            trusted=False,
+        )
 
     def load(self) -> dict:
         file_path = self.path() / self._entry

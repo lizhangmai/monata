@@ -196,7 +196,11 @@ def test_cell_create_view_preserves_existing_metadata(tmp_path):
     assert view.view_type == "netlist"
     assert config["cell"] == {"name": "inverter", "description": "test"}
     assert config["views"]["schematic"] == {"entry": "schematic.py", "class": "Inv"}
-    assert config["views"]["netlist"] == {"entry": "netlist.cir", "generated": True}
+    assert config["views"]["netlist"] == {
+        "entry": "netlist.cir",
+        "format": "spice",
+        "generated": True,
+    }
 
 
 @pytest.mark.parametrize("view_type", ["../layout", "bad view", "evil\nview", "tab\tview", ""])

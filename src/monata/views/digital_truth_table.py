@@ -19,6 +19,7 @@ from monata.sim.digital_table import (
 )
 from monata.sim.results import SimResult
 from monata.views.base import View
+from monata.views.declarative import schematic_view_to_subcircuit
 from monata.views.simulation import SimulationProgressCallback, SimulationView
 
 TruthTableMode = DigitalTruthTableMode
@@ -148,9 +149,17 @@ class DigitalTruthTableView(View):
         if not isinstance(dut, str):
             raise ValueError("digital_truth_table mapping requires string 'dut'")
         library = self.cell.library
-        schematic_cls = library[dut]["schematic"].load()
+        schematic_cls = schematic_view_to_subcircuit(
+            library[dut]["schematic"],
+            allow_trusted_python=True,
+            reason="digital_truth_table DUT",
+        )
         dependencies = [
-            library[str(name)]["schematic"].load()
+            schematic_view_to_subcircuit(
+                library[str(name)]["schematic"],
+                allow_trusted_python=True,
+                reason="digital_truth_table dependency",
+            )
             for name in config.get("dependencies", ())
         ]
         expected = config.get("expected")
