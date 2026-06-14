@@ -86,6 +86,35 @@ Monata can use:
 Users and downstream packagers remain responsible for installing external tools
 and complying with their upstream licenses.
 
+Recommended local setup:
+
+```bash
+git clone https://github.com/lizhangmai/lizhangmai-skills.git
+cd lizhangmai-skills/skills/conda-build
+
+# Choose a persistent local conda channel for generated circuit-tool packages.
+export CONDA_BUILD_OUTPUT_DIR="$HOME/.local/share/monata-conda-channel"
+
+# Build the current Monata runtime backend.
+python3 scripts/rattler_channel.py build --recipe-set circuit-toolchain --package ngspice
+```
+
+Then create a project environment with pixi:
+
+```bash
+pixi init monata-work \
+  --channel "file://$CONDA_BUILD_OUTPUT_DIR" \
+  --channel https://prefix.dev/conda-forge
+cd monata-work
+pixi add python=3.12 ngspice
+pixi add --pypi monata
+pixi run python -c "import monata, shutil; print(shutil.which('ngspice'))"
+```
+
+Build additional circuit packages from the same skill only when your workflow
+needs them, for example `openvaf-r` for Verilog-A to OSDI preparation or
+`--up-to xyce` for the Xyce recipe stack.
+
 ## Documentation
 
 Long-form documentation lives outside this source package:
