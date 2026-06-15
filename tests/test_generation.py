@@ -8,27 +8,30 @@ from monata.cell import Cell
 from monata.errors import ViewAlreadyModifiedError
 from monata.library import Library
 from monata.projection import PDKProjectionContext
+from monata.schematic import SchematicBuilder, dump_schematic
+
+LEGACY_SCHEMATIC_FORMAT = "python-" + "schematic"
 
 
 def _make_cell_with_schematic(tmp_path):
     cell_dir = tmp_path / "inverter"
     cell_dir.mkdir()
 
-    (cell_dir / "schematic.py").write_text(
-        "from monata.netlist import SubCircuit\n"
-        "\n"
-        "class Inverter(SubCircuit):\n"
-        "    NAME = 'inverter'\n"
-        "    NODES = ('vin', 'out', 'vdd', 'gnd')\n"
-        "\n"
-        "    def build(self):\n"
-        "        pass\n"
+    (cell_dir / "schematic.monata.json").write_text(
+        dump_schematic(
+            SchematicBuilder("inverter")
+            .pin("vin", direction="input")
+            .pin("out", direction="output")
+            .pin("vdd")
+            .pin("gnd")
+            .build()
+        )
     )
 
     (cell_dir / "cell.toml").write_text(
         '[cell]\nname = "inverter"\ndescription = "source schematic"\n\n'
         '[views]\n'
-        'schematic = { entry = "schematic.py", format = "python-schematic", trusted = true, class = "Inverter" }\n'
+        'schematic = { entry = "schematic.monata.json", format = "monata-schematic-json", schema_version = 2 }\n'
     )
 
     lib = MagicMock()
@@ -40,27 +43,28 @@ def _make_cell_with_pdk_schematic(tmp_path, library):
     cell_dir = tmp_path / "pdk_inv"
     cell_dir.mkdir()
 
-    (cell_dir / "schematic.py").write_text(
-        "from monata.netlist import SubCircuit\n"
-        "\n"
-        "class PdkInv(SubCircuit):\n"
-        "    NAME = 'pdk_inv'\n"
-        "    NODES = ('vin', 'out', 'vdd', 'gnd')\n"
-        "\n"
-        "    def build(self):\n"
-        "        self.pdk_instance(\n"
-        "            'mn',\n"
-        "            lib='PTM_TEST',\n"
-        "            cell='nfet',\n"
-        "            view='ngspice',\n"
-        "            pins={'d': 'out', 'g': 'vin', 's': 'gnd', 'b': 'gnd'},\n"
-        "        )\n"
+    (cell_dir / "schematic.monata.json").write_text(
+        dump_schematic(
+            SchematicBuilder("pdk_inv")
+            .pin("vin", direction="input")
+            .pin("out", direction="output")
+            .pin("vdd")
+            .pin("gnd")
+            .pdk_instance(
+                "mn",
+                lib="PTM_TEST",
+                cell="nfet",
+                view="ngspice",
+                pins={"d": "out", "g": "vin", "s": "gnd", "b": "gnd"},
+            )
+            .build()
+        )
     )
 
     (cell_dir / "cell.toml").write_text(
         '[cell]\nname = "pdk_inv"\ndescription = "source schematic"\n\n'
         '[views]\n'
-        'schematic = { entry = "schematic.py", format = "python-schematic", trusted = true, class = "PdkInv" }\n'
+        'schematic = { entry = "schematic.monata.json", format = "monata-schematic-json", schema_version = 2 }\n'
     )
 
     return Cell(cell_dir, library)
@@ -186,17 +190,17 @@ def test_generate_netlist(tmp_path):
 def test_generate_views_for_category_owned_cell(tmp_path):
     lib = Library.create(tmp_path / "mylib", name="mylib")
     cell = lib.create_category("logic").create_cell("inverter")
-    (cell.path / "schematic.py").write_text(
-        "from monata.netlist import SubCircuit\n"
-        "\n"
-        "class Inverter(SubCircuit):\n"
-        "    NAME = 'inverter'\n"
-        "    NODES = ('vin', 'out', 'vdd', 'gnd')\n"
-        "\n"
-        "    def build(self):\n"
-        "        pass\n"
+    (cell.path / "schematic.monata.json").write_text(
+        dump_schematic(
+            SchematicBuilder("inverter")
+            .pin("vin", direction="input")
+            .pin("out", direction="output")
+            .pin("vdd")
+            .pin("gnd")
+            .build()
+        )
     )
-    cell.create_view("schematic", format="python-schematic", trusted=True, cls_name="Inverter")
+    cell.create_view("schematic")
 
     symbol_path = cell.generate_symbol()
     netlist_path = cell.generate_netlist()
@@ -248,10 +252,9 @@ def test_generate_netlist_updates_cell_toml(tmp_path):
     assert config["views"]["netlist"]["generated"] is True
     assert config["cell"] == {"name": "inverter", "description": "source schematic"}
     assert config["views"]["schematic"] == {
-        "entry": "schematic.py",
-        "format": "python-schematic",
-        "trusted": True,
-        "class": "Inverter",
+        "entry": "schematic.monata.json",
+        "format": "monata-schematic-json",
+        "schema_version": 2,
     }
 
 
@@ -286,3 +289,29 @@ def test_generate_view_dispatches_registered_generator(tmp_path):
 
     assert result_path == cell.path / "symbol.monata.json"
     assert result_path.exists()
+
+
+def test_default_generation_refuses_python_schematic_without_executing(tmp_path):
+    cell_dir = tmp_path / "legacy"
+    cell_dir.mkdir()
+    marker = tmp_path / "executed.txt"
+    (cell_dir / "schematic.py").write_text(
+        "from pathlib import Path\n"
+        f"Path({str(marker)!r}).write_text('executed')\n"
+        "from monata.netlist import SubCircuit\n"
+        "class Legacy(SubCircuit):\n"
+        "    NAME = 'legacy'\n"
+        "    NODES = ('a', 'z')\n"
+    )
+    (cell_dir / "cell.toml").write_text(
+        '[cell]\nname = "legacy"\n\n'
+        '[views]\n'
+        f'schematic = {{ entry = "schematic.py", format = "{LEGACY_SCHEMATIC_FORMAT}", trusted = true, class = "Legacy" }}\n'
+    )
+    cell = Cell(cell_dir, MagicMock())
+
+    with pytest.raises(ValueError, match="legacy Python schematic format is no longer supported"):
+        cell.generate_symbol()
+    with pytest.raises(ValueError, match="legacy Python schematic format is no longer supported"):
+        cell.generate_netlist()
+    assert not marker.exists()

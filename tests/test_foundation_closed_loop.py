@@ -4,6 +4,7 @@ import pytest
 from monata.measure.spec import Spec
 from monata.models import ModelRegistry
 from monata.netlist import Circuit
+from monata.schematic import SchematicBuilder
 from monata.sim.core import DCSpec, LocalExecutor, SimResult, SimTask
 from monata.workspace.project import Project
 
@@ -14,24 +15,16 @@ def test_foundation_project_to_ngspice_result_closed_loop(tmp_path, require_ngsp
     project = Project.create(tmp_path / "closed_loop")
     lib = project.create_library("analog", tech_model_paths=[])
     cell = lib.create_cell("rc_probe", description="foundation closed-loop cell")
-    (cell.path / "schematic.py").write_text(
-        "from monata.netlist import SubCircuit\n"
-        "\n"
-        "class RcProbe(SubCircuit):\n"
-        "    NAME = 'rc_probe'\n"
-        "    NODES = ('inp', 'out', 'gnd')\n"
-        "\n"
-        "    def build(self):\n"
-        "        self.resistor('load', 'inp', 'out', '1k')\n"
-        "        self.capacitor('hold', 'out', 'gnd', '1n')\n"
+    (
+        SchematicBuilder("rc_probe")
+        .pin("inp", direction="input")
+        .pin("out", direction="output")
+        .pin("gnd", direction="ground")
+        .primitive("load", "resistor", connections={"n1": "inp", "n2": "out"}, value="1k")
+        .primitive("hold", "capacitor", connections={"n1": "out", "n2": "gnd"}, value="1n")
+        .write(cell.path / "schematic.monata.json")
     )
-    cell.create_view(
-        "schematic",
-        entry="schematic.py",
-        format="python-schematic",
-        trusted=True,
-        cls_name="RcProbe",
-    )
+    cell.create_view("schematic")
 
     symbol_path = cell.generate_symbol()
     netlist_path = cell.generate_netlist()
@@ -48,7 +41,7 @@ def test_foundation_project_to_ngspice_result_closed_loop(tmp_path, require_ngsp
     models.register("mos", model_path, module_name="placeholder")
     assert models.osdi_paths("mos") == [str(model_path)]
 
-    subcircuit = cell["schematic"].load()()
+    subcircuit = cell["schematic"].to_circuit()
     circuit = Circuit("foundation dc smoke")
     circuit.subckt(subcircuit)
     circuit.voltage("1", "in", "0", "0")

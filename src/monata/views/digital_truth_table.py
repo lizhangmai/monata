@@ -151,13 +151,13 @@ class DigitalTruthTableView(View):
         library = self.cell.library
         schematic_cls = schematic_view_to_subcircuit(
             library[dut]["schematic"],
-            allow_trusted_python=True,
+            allow_trusted_python=False,
             reason="digital_truth_table DUT",
         )
         dependencies = [
             schematic_view_to_subcircuit(
                 library[str(name)]["schematic"],
-                allow_trusted_python=True,
+                allow_trusted_python=False,
                 reason="digital_truth_table dependency",
             )
             for name in config.get("dependencies", ())

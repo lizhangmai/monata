@@ -148,6 +148,28 @@ print(result.waveforms["vout"])
 The default backend is `ngspice-subprocess`, which runs a local `ngspice`
 executable from `PATH` or `CONDA_PREFIX/bin`.
 
+For reusable library cells, author the canonical schematic view as structured
+data. The Python builder is an authoring helper; the persisted cellview is
+`schematic.monata.json`.
+
+```python
+from monata.schematic import SchematicBuilder
+
+(
+    SchematicBuilder("rc_filter")
+    .pin("vin", direction="input")
+    .pin("vout", direction="output")
+    .pin("0")
+    .primitive("load", "resistor", connections={"n1": "vin", "n2": "vout"}, value="1k")
+    .primitive("hold", "capacitor", connections={"n1": "vout", "n2": "0"}, value="1n")
+    .write(cell.path / "schematic.monata.json")
+)
+
+cell.create_view("schematic")
+cell.generate_symbol()
+cell.generate_netlist()
+```
+
 ## External Tool Boundary
 
 The public `monata` package does not ship simulator binaries, shared simulator
@@ -211,13 +233,14 @@ Monata 0.2 treats ordinary cellviews as declarative data by default:
 parsed and validated without executing project code. For data views, `read()`
 returns the structured payload and `load()` remains a safe parse operation.
 
-Python views are trusted executable extensions. Register them on the semantic
-view key with explicit metadata such as `schematic = { entry = "schematic.py",
-format = "python-schematic", trusted = true, class = "Inverter" }`, then call
-`load_trusted()` or `run_trusted()` when execution is intended. Python view
-metadata without an explicit format and `trusted = true` is rejected. Loading
-trusted views executes project code in the current Python process; view loading
-is not sandboxed. Open, load, generate, and simulate executable views only from
+Canonical schematics are structured data, and default symbol generation,
+netlist generation, JSON testbench DUT resolution, and digital truth-table DUT
+resolution do not execute a neighboring `schematic.py`. Python remains useful
+as an authoring surface that writes data, or as an explicit trusted extension
+for executable views such as Python testbenches. Python view metadata without
+an explicit format and `trusted = true` is rejected; `run_trusted()` and
+`load_trusted()` execute project code in the current Python process and are not
+sandboxed. Open, load, generate, and simulate executable views only from
 trusted libraries and project workspaces.
 
 ## License

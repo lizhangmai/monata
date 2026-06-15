@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 import sys
 from concurrent.futures import Future
-from types import MappingProxyType, ModuleType
+from types import MappingProxyType, SimpleNamespace
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -11,13 +11,14 @@ import pytest
 from monata.errors import ViewNotGeneratedError
 from monata.library import Library
 from monata.netlist import SubCircuit
+from monata.schematic import SchematicBuilder
 from monata.sim.core import SimResult, SimTask, TranSpec
+from monata.sim.digital_table import DigitalTruthTableSpec, build_digital_truth_table_from_spec
 from monata.sim.digital_plan import digital_task_metadata
 from monata.views.declarative import SymbolJsonView
 from monata.views.base import View
 from monata.views.digital_truth_table import DigitalTruthTableView
 from monata.views.netlist import NetlistView
-from monata.views.schematic import SchematicView
 from monata.views.simulation import SimulationView
 from monata.views.symbol import infer_pin_direction
 from monata.views.testbench import TestbenchView
@@ -85,109 +86,6 @@ def test_view_run_raises_type_error():
     view = View(view_type="schematic", cell=cell, entry="schematic.py", generated=False)
     with pytest.raises(TypeError, match="only valid on testbench"):
         view.run()
-
-def test_schematic_view_load(tmp_path):
-    cell_dir = tmp_path / "inverter"
-    cell_dir.mkdir(parents=True)
-
-    (cell_dir / "schematic.py").write_text(
-        "from monata.netlist import SubCircuit\n"
-        "\n"
-        "class Inverter(SubCircuit):\n"
-        "    NAME = 'inverter'\n"
-        "    NODES = ('vin', 'out', 'vdd', 'gnd')\n"
-        "\n"
-        "    def build(self):\n"
-        "        pass\n"
-    )
-
-    cell = MagicMock()
-    cell.path = cell_dir
-    cell.name = "inverter"
-
-    view = SchematicView(cell=cell, entry="schematic.py", cls_name="Inverter")
-    loaded_cls = view.load()
-
-    assert loaded_cls.NAME == "inverter"
-    assert loaded_cls.NODES == ('vin', 'out', 'vdd', 'gnd')
-
-
-def test_schematic_view_load_exposes_library_helpers(tmp_path):
-    lib_dir = tmp_path / "mylib"
-    cell_dir = lib_dir / "inverter"
-    cell_dir.mkdir(parents=True)
-
-    (lib_dir / "_devices.py").write_text("DEVICE_NAME = 'nmos'\n")
-    (cell_dir / "schematic.py").write_text(
-        "from monata.netlist import SubCircuit\n"
-        "from mylib._devices import DEVICE_NAME\n"
-        "\n"
-        "class Inverter(SubCircuit):\n"
-        "    NAME = DEVICE_NAME\n"
-        "    NODES = ('vin', 'out', 'vdd', 'gnd')\n"
-        "\n"
-        "    def build(self):\n"
-        "        pass\n"
-    )
-
-    cell = MagicMock()
-    cell.path = cell_dir
-    cell.name = "inverter"
-    cell.library = MagicMock()
-    cell.library.name = "mylib"
-    cell.library.path = lib_dir
-    original_sys_path = list(sys.path)
-
-    view = SchematicView(cell=cell, entry="schematic.py", cls_name="Inverter")
-    loaded_cls = view.load()
-
-    assert loaded_cls.NAME == "nmos"
-    assert sys.path == original_sys_path
-
-
-def test_schematic_view_load_file_not_found(tmp_path):
-    cell_dir = tmp_path / "inverter"
-    cell_dir.mkdir(parents=True)
-
-    cell = MagicMock()
-    cell.path = cell_dir
-    cell.name = "inverter"
-
-    view = SchematicView(cell=cell, entry="schematic.py", cls_name="Inverter")
-    with pytest.raises(FileNotFoundError):
-        view.load()
-
-
-def test_python_attribute_load_failure_restores_module_and_import_paths(tmp_path):
-    lib_dir = tmp_path / "mylib"
-    cell_dir = lib_dir / "inverter"
-    cell_dir.mkdir(parents=True)
-    (cell_dir / "schematic.py").write_text("VALUE = 1\n")
-
-    cell = MagicMock()
-    cell.path = cell_dir
-    cell.name = "inverter"
-    cell.library = MagicMock()
-    cell.library.name = "mylib"
-    cell.library.path = lib_dir
-    view = SchematicView(cell=cell, entry="schematic.py", cls_name="MissingClass")
-    module_name = view.python_module_name("schematic")
-    previous_module = ModuleType(module_name)
-    old_module = sys.modules.get(module_name)
-    sys.modules[module_name] = previous_module
-    original_sys_path = list(sys.path)
-
-    try:
-        with pytest.raises(AttributeError):
-            view.load()
-
-        assert sys.modules[module_name] is previous_module
-        assert sys.path == original_sys_path
-    finally:
-        if old_module is None:
-            sys.modules.pop(module_name, None)
-        else:
-            sys.modules[module_name] = old_module
 
 
 def test_testbench_view_load(tmp_path):
@@ -699,11 +597,18 @@ def test_digital_truth_table_view_mapping_requires_dut(tmp_path):
 def test_digital_truth_table_view_mapping_accepts_expected_rows(tmp_path):
     lib = Library.create(tmp_path / "mylib", name="mylib")
     dut = lib.create_cell("and2")
-    (dut.path / "schematic.py").write_text(
-        "from test_views import ViewTestAnd2\n"
-        "main = ViewTestAnd2\n"
+    marker = tmp_path / "executed.txt"
+    (
+        SchematicBuilder("and2")
+        .pin("a", direction="input")
+        .pin("b", direction="input")
+        .pin("out", direction="output")
+        .write(dut.path / "schematic.monata.json")
     )
-    dut.create_view("schematic", format="python-schematic", trusted=True, cls_name="main")
+    (dut.path / "schematic.py").write_text(
+        f"from pathlib import Path\nPath({str(marker)!r}).write_text('executed')\n"
+    )
+    dut.create_view("schematic")
     cell = lib.create_cell("and2_tb")
     (cell.path / "verification.py").write_text(
         "from monata.sim.digital_table import DigitalTruthTableSpec\n"
@@ -730,6 +635,39 @@ def test_digital_truth_table_view_mapping_accepts_expected_rows(tmp_path):
 
     assert table.expected_for((1, 1)) == (1,)
     assert table.expected_for((0, 1)) == (0,)
+    assert not marker.exists()
+
+
+def test_digital_truth_table_spec_helper_uses_data_schematic_without_neighbor_python(tmp_path):
+    lib = Library.create(tmp_path / "mylib", name="mylib")
+    dut = lib.create_cell("and2")
+    marker = tmp_path / "executed.txt"
+    (
+        SchematicBuilder("and2")
+        .pin("a", direction="input")
+        .pin("b", direction="input")
+        .pin("out", direction="output")
+        .write(dut.path / "schematic.monata.json")
+    )
+    (dut.path / "schematic.py").write_text(
+        f"from pathlib import Path\nPath({str(marker)!r}).write_text('executed')\n"
+    )
+    dut.create_view("schematic")
+
+    table = build_digital_truth_table_from_spec(
+        lib,
+        DigitalTruthTableSpec(
+            dut="and2",
+            inputs=("a", "b"),
+            outputs=("out",),
+            expected=lambda bits: (bits[0] & bits[1],),
+        ),
+        run_config=SimpleNamespace(vdd=1.0, threshold=None, corner=None, model_config=None),
+        mode="transient",
+    )
+
+    assert table.dut_name == "and2"
+    assert not marker.exists()
 
 
 def test_view_registry_object_isolated_from_default_registry():

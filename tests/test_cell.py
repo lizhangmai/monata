@@ -6,6 +6,7 @@ import pytest
 from monata.cell import Cell
 from monata.errors import ViewAlreadyModifiedError, ViewNotFoundError
 from monata.library import Library
+from monata.schematic import SchematicBuilder
 from monata.views import View
 from monata.views.registry import register_view_type, unregister_view_type
 
@@ -83,7 +84,7 @@ def test_cell_list_views_empty(tmp_path):
 
 
 def test_cell_list_views(tmp_path):
-    views_toml = 'schematic = { entry = "schematic.py", format = "python-schematic", trusted = true, class = "Inv" }\n'
+    views_toml = 'schematic = { entry = "schematic.monata.json", format = "monata-schematic-json", schema_version = 2 }\n'
     cell_dir = _make_cell(tmp_path, views_toml=views_toml)
     lib = MagicMock()
     cell = Cell(cell_dir, lib)
@@ -91,13 +92,13 @@ def test_cell_list_views(tmp_path):
 
 
 def test_cell_getitem_schematic(tmp_path):
-    views_toml = 'schematic = { entry = "schematic.py", format = "python-schematic", trusted = true, class = "Inv" }\n'
+    views_toml = 'schematic = { entry = "schematic.monata.json", format = "monata-schematic-json", schema_version = 2 }\n'
     cell_dir = _make_cell(tmp_path, views_toml=views_toml)
     lib = MagicMock()
     cell = Cell(cell_dir, lib)
     view = cell["schematic"]
     assert view.view_type == "schematic"
-    assert view.entry == "schematic.py"
+    assert view.entry == "schematic.monata.json"
 
 
 def test_cell_getitem_testbench(tmp_path):
@@ -134,7 +135,7 @@ def test_cell_getitem_symbol(tmp_path):
         (
             'schematic = { entry = "schematic.py", class = "Inv" }\n',
             "schematic",
-            "format = 'python-schematic'",
+            "Python class metadata is no longer supported",
         ),
         (
             'testbench = { entry = "testbench.py", function = "main" }\n',
@@ -181,7 +182,7 @@ def test_cell_getitem_uses_registered_custom_view(tmp_path):
 
 
 def test_cell_contains(tmp_path):
-    views_toml = 'schematic = { entry = "schematic.py", format = "python-schematic", trusted = true, class = "Inv" }\n'
+    views_toml = 'schematic = { entry = "schematic.monata.json", format = "monata-schematic-json", schema_version = 2 }\n'
     cell_dir = _make_cell(tmp_path, views_toml=views_toml)
     lib = MagicMock()
     cell = Cell(cell_dir, lib)
@@ -207,18 +208,12 @@ def test_cell_create_view(tmp_path):
     cell_dir = _make_cell(tmp_path)
     lib = MagicMock()
     cell = Cell(cell_dir, lib)
-    view = cell.create_view(
-        "schematic",
-        entry="schematic.py",
-        format="python-schematic",
-        trusted=True,
-        cls_name="Inv",
-    )
+    view = cell.create_view("schematic")
     assert view.view_type == "schematic"
 
 
 def test_cell_create_view_preserves_existing_metadata(tmp_path):
-    views_toml = 'schematic = { entry = "schematic.py", format = "python-schematic", trusted = true, class = "Inv" }\n'
+    views_toml = 'schematic = { entry = "schematic.monata.json", format = "monata-schematic-json", schema_version = 2 }\n'
     cell_dir = _make_cell(tmp_path, views_toml=views_toml)
     lib = MagicMock()
     cell = Cell(cell_dir, lib)
@@ -230,10 +225,9 @@ def test_cell_create_view_preserves_existing_metadata(tmp_path):
     assert view.view_type == "netlist"
     assert config["cell"] == {"name": "inverter", "description": "test"}
     assert config["views"]["schematic"] == {
-        "entry": "schematic.py",
-        "format": "python-schematic",
-        "trusted": True,
-        "class": "Inv",
+        "entry": "schematic.monata.json",
+        "format": "monata-schematic-json",
+        "schema_version": 2,
     }
     assert config["views"]["netlist"] == {
         "entry": "netlist.cir",
@@ -260,7 +254,7 @@ def test_cell_create_view_rejects_removed_implicit_python_metadata_without_writi
     cell_dir = _make_cell(tmp_path)
     cell = Cell(cell_dir, MagicMock())
 
-    with pytest.raises(ValueError, match="use schematic_py"):
+    with pytest.raises(ValueError, match="Python class metadata is no longer supported"):
         cell.create_view("schematic", entry="schematic.py", cls_name="Inv")
 
     with pytest.raises(ValueError, match="use testbench_py"):
@@ -381,35 +375,31 @@ ptm65 = "ptm65nm_pmos"
     )
     (cell_dir / "cell.toml").write_text(
         '[cell]\nname = "inv"\n\n'
-        '[views]\nschematic = { entry = "schematic.py", format = "python-schematic", trusted = true, class = "Inv" }\n'
+        '[views]\nschematic = { entry = "schematic.monata.json", format = "monata-schematic-json", schema_version = 2 }\n'
     )
-    (cell_dir / "schematic.py").write_text(
-        """
-from monata.netlist import SubCircuit
-
-
-class Inv(SubCircuit):
-    NAME = "inv"
-    NODES = ("in", "out", "vdd", "gnd")
-
-    def build(self):
-        self.pdk_instance(
+    (
+        SchematicBuilder("inv")
+        .pin("in", direction="input")
+        .pin("out", direction="output")
+        .pin("vdd", direction="power")
+        .pin("gnd", direction="ground")
+        .pdk_instance(
             "n",
             lib="PTM_BULK",
             cell="nmos",
             view="ngspice",
             pins={"d": "out", "g": "in", "s": "gnd", "b": "gnd"},
-            params={"w": "1.2u", "l": "65n"},
+            parameters={"w": "1.2u", "l": "65n"},
         )
-        self.pdk_instance(
+        .pdk_instance(
             "p",
             lib="PTM_BULK",
             cell="pmos",
             view="ngspice",
             pins={"d": "out", "g": "in", "s": "vdd", "b": "vdd"},
-            params={"w": "2.4u", "l": "65n"},
+            parameters={"w": "2.4u", "l": "65n"},
         )
-"""
+        .write(cell_dir / "schematic.monata.json")
     )
 
     netlist_path = Library(lib_dir)["inv"].generate_netlist(force=True, projection="logical")

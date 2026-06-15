@@ -1,6 +1,7 @@
 import pytest
 
 from monata import LibraryRegistry
+from monata.schematic import SchematicBuilder
 
 pytestmark = pytest.mark.integration
 
@@ -19,28 +20,20 @@ def test_full_workflow(tmp_path):
     cell = lib.create_cell("buffer", description="unity gain buffer")
     assert "buffer" in lib
 
-    (cell.path / "schematic.py").write_text(
-        "from monata.netlist import SubCircuit\n"
-        "\n"
-        "class Buffer(SubCircuit):\n"
-        "    NAME = 'buffer'\n"
-        "    NODES = ('inp', 'out', 'vdd', 'gnd')\n"
-        "\n"
-        "    def build(self):\n"
-        "        pass\n"
+    (
+        SchematicBuilder("buffer")
+        .pin("inp", direction="input")
+        .pin("out", direction="output")
+        .pin("vdd", direction="power")
+        .pin("gnd", direction="ground")
+        .write(cell.path / "schematic.monata.json")
     )
-    cell.create_view(
-        "schematic",
-        entry="schematic.py",
-        format="python-schematic",
-        trusted=True,
-        cls_name="Buffer",
-    )
+    cell.create_view("schematic")
 
     sch = cell["schematic"]
-    cls = sch.load()
-    assert cls.NAME == "buffer"
-    assert cls.NODES == ('inp', 'out', 'vdd', 'gnd')
+    schematic = sch.load()
+    assert schematic.cell == "buffer"
+    assert schematic.pin_names == ("inp", "out", "vdd", "gnd")
 
     sym_path = cell.generate_symbol()
     assert sym_path.exists()
@@ -70,21 +63,15 @@ def test_dict_like_access(tmp_path):
         tech_model_paths=[],
     )
     cell = lib.create_cell("inv")
-    (cell.path / "sch.py").write_text(
-        "from monata.netlist import SubCircuit\n"
-        "class Inv(SubCircuit):\n"
-        "    NAME = 'inv'\n"
-        "    NODES = ('a', 'y', 'vdd', 'gnd')\n"
-        "    def build(self):\n"
-        "        pass\n"
+    (
+        SchematicBuilder("inv")
+        .pin("a", direction="input")
+        .pin("y", direction="output")
+        .pin("vdd", direction="power")
+        .pin("gnd", direction="ground")
+        .write(cell.path / "schematic.monata.json")
     )
-    cell.create_view(
-        "schematic",
-        entry="sch.py",
-        format="python-schematic",
-        trusted=True,
-        cls_name="Inv",
-    )
+    cell.create_view("schematic")
 
-    cls = reg["mylib"]["inv"]["schematic"].load()
-    assert cls.NAME == "inv"
+    schematic = reg["mylib"]["inv"]["schematic"].load()
+    assert schematic.cell == "inv"

@@ -6,6 +6,7 @@ import pytest
 from monata.cell import Cell
 from monata.library import Library
 from monata.netlist import SubCircuit, render_ngspice
+from monata.schematic import SchematicData
 from monata.sim.core import SimTask, TranSpec
 from monata.views.declarative import (
     SchematicJsonView,
@@ -15,6 +16,9 @@ from monata.views.declarative import (
     schematic_view_to_circuit,
 )
 
+LEGACY_SCHEMATIC_FORMAT = "python-" + "schematic"
+REMOVED_SCHEMATIC_VIEW = "schematic" + "_py"
+
 
 def _write_json(path, payload):
     path.write_text(json.dumps(payload, indent=2) + "\n")
@@ -22,24 +26,34 @@ def _write_json(path, payload):
 
 def _schematic_payload():
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "view_type": "schematic",
-        "cell": "inverter",
-        "pins": [
-            {"name": "vin", "direction": "input"},
-            {"name": "vout", "direction": "output"},
-            {"name": "vdd", "direction": "power"},
-            {"name": "vss", "direction": "ground"},
-        ],
+        "cell": {"name": "inverter"},
+        "interface": {
+            "pins": [
+                {"name": "vin", "direction": "input", "net": "vin", "order": 0},
+                {"name": "vout", "direction": "output", "net": "vout", "order": 1},
+                {"name": "vdd", "direction": "power", "net": "vdd", "order": 2},
+                {"name": "vss", "direction": "ground", "net": "vss", "order": 3},
+            ]
+        },
         "instances": [
             {
                 "name": "mn",
-                "device": "nmos",
+                "ref": {"kind": "nmos", "device": "nmos"},
                 "connections": {"d": "vout", "g": "vin", "s": "vss", "b": "vss"},
                 "parameters": {"w": "1u", "l": "45n"},
             }
         ],
-        "nets": ["vin", "vout", "vdd", "vss"],
+        "nets": [
+            {"name": "vin", "kind": "signal"},
+            {"name": "vout", "kind": "signal"},
+            {"name": "vdd", "kind": "power"},
+            {"name": "vss", "kind": "ground"},
+        ],
+        "provenance": [],
+        "properties": {},
+        "annotations": [],
     }
 
 
@@ -59,8 +73,7 @@ def _make_cell(tmp_path, views_toml):
 def test_schematic_json_view_reads_without_executing_neighbor_python(tmp_path):
     cell = _make_cell(
         tmp_path,
-        'schematic = { entry = "schematic.monata.json", format = "monata-schematic-json" }\n'
-        'schematic_py = { entry = "schematic.py", format = "python-schematic", trusted = true, class = "Inv" }\n',
+        'schematic = { entry = "schematic.monata.json", format = "monata-schematic-json" }\n',
     )
     _write_json(cell.path / "schematic.monata.json", _schematic_payload())
     (cell.path / "schematic.py").write_text("raise RuntimeError('python schematic executed')\n")
@@ -70,30 +83,30 @@ def test_schematic_json_view_reads_without_executing_neighbor_python(tmp_path):
     circuit = view.to_circuit()
 
     assert isinstance(view, SchematicJsonView)
-    assert payload["cell"] == "inverter"
+    assert isinstance(payload, SchematicData)
+    assert payload.cell == "inverter"
     assert view.pin_names() == ("vin", "vout", "vdd", "vss")
     assert isinstance(circuit, SubCircuit)
     assert "Mmn vout vin vss vss nmos" in render_ngspice(circuit)
 
 
-def test_explicit_python_view_requires_trusted_before_import(tmp_path):
+def test_legacy_python_schematic_metadata_rejected_without_import(tmp_path):
     cell = _make_cell(
         tmp_path,
-        'schematic_py = { entry = "schematic.py", format = "python-schematic", trusted = false, class = "Inv" }\n',
+        f'schematic = {{ entry = "schematic.py", format = "{LEGACY_SCHEMATIC_FORMAT}", trusted = false, class = "Inv" }}\n',
     )
     (cell.path / "schematic.py").write_text("raise RuntimeError('should not import')\n")
 
-    with pytest.raises(ValueError, match="python-schematic views require trusted = true"):
-        cell["schematic_py"]
+    with pytest.raises(ValueError, match="legacy Python schematic format is no longer supported"):
+        cell["schematic"]
 
 
-def test_create_view_metadata_distinguishes_data_and_trusted_python(tmp_path):
+def test_create_view_metadata_uses_data_schematic_and_rejects_removed_python_view(tmp_path):
     cell = _make_cell(tmp_path, "")
 
     schematic = cell.create_view("schematic")
-    with pytest.raises(ValueError, match="trusted = true"):
-        cell.create_view("schematic_py", cls_name="Inv")
-    schematic_py = cell.create_view("schematic_py", cls_name="Inv", trusted=True)
+    with pytest.raises(ValueError, match="removed Python schematic view type"):
+        cell.create_view(REMOVED_SCHEMATIC_VIEW, cls_name="Inv")
     testbench = cell.create_view("testbench", entry="custom.monata.json")
 
     with open(cell.path / "cell.toml", "rb") as file:
@@ -103,16 +116,10 @@ def test_create_view_metadata_distinguishes_data_and_trusted_python(tmp_path):
     assert config["views"]["schematic"] == {
         "entry": "schematic.monata.json",
         "format": "monata-schematic-json",
-        "schema_version": 1,
+        "schema_version": 2,
     }
-    assert schematic_py.trusted is True
     assert testbench.entry == "custom.monata.json"
-    assert config["views"]["schematic_py"] == {
-        "entry": "schematic.py",
-        "format": "python-schematic",
-        "trusted": True,
-        "class": "Inv",
-    }
+    assert REMOVED_SCHEMATIC_VIEW not in config["views"]
     assert config["views"]["testbench"] == {
         "entry": "custom.monata.json",
         "format": "monata-testbench-json",
@@ -123,7 +130,7 @@ def test_create_view_metadata_distinguishes_data_and_trusted_python(tmp_path):
 def test_create_view_data_format_rejects_python_metadata(tmp_path):
     cell = _make_cell(tmp_path, "")
 
-    with pytest.raises(ValueError, match="use schematic_py"):
+    with pytest.raises(ValueError, match="Python schematic metadata is not supported"):
         cell.create_view("schematic", format="monata-schematic-json", cls_name="Inv")
     with pytest.raises(ValueError, match="use testbench_py"):
         cell.create_view("testbench", format="monata-testbench-json", function_name="main")
@@ -146,22 +153,19 @@ def test_explicit_unknown_format_fails_closed(tmp_path):
 
 
 def test_schematic_conversion_refuses_python_without_explicit_allow(tmp_path):
-    cell = _make_cell(
-        tmp_path,
-        'schematic_py = { entry = "schematic.py", format = "python-schematic", trusted = true, class = "Inv" }\n',
-    )
-    (cell.path / "schematic.py").write_text(
-        "from monata.netlist import SubCircuit\n"
-        "class Inv(SubCircuit):\n"
-        "    NAME = 'inv'\n"
-        "    NODES = ('a', 'y')\n"
-    )
+    marker = tmp_path / "executed.txt"
 
-    with pytest.raises(TypeError, match="refusing to execute"):
-        schematic_view_to_circuit(cell["schematic_py"], allow_trusted_python=False, reason="unit test")
+    class LegacyPythonView:
+        format = LEGACY_SCHEMATIC_FORMAT
+        trusted = True
 
-    circuit = schematic_view_to_circuit(cell["schematic_py"], allow_trusted_python=True, reason="unit test")
-    assert isinstance(circuit, SubCircuit)
+        def load_trusted(self):
+            marker.write_text("executed")
+            return SubCircuit("legacy", nodes=("a", "y"))
+
+    with pytest.raises(TypeError, match="legacy Python schematic format is no longer supported"):
+        schematic_view_to_circuit(LegacyPythonView(), allow_trusted_python=False, reason="unit test")
+    assert not marker.exists()
 
 
 def test_schematic_conversion_rejects_unregistered_to_circuit_object():
@@ -173,7 +177,7 @@ def test_schematic_conversion_rejects_unregistered_to_circuit_object():
             return SubCircuit("adhoc", nodes=("a", "b"))
 
     with pytest.raises(TypeError, match="unsupported schematic view format"):
-        schematic_view_to_circuit(AdHocView(), allow_trusted_python=True, reason="unit test")
+        schematic_view_to_circuit(AdHocView(), allow_trusted_python=False, reason="unit test")
 
 
 def test_symbol_json_view_loads_normalized_payload(tmp_path):
@@ -236,6 +240,66 @@ def test_testbench_json_view_builds_sim_task_from_data_schematic(tmp_path):
     assert task.output_names == ("vout",)
     assert task.metadata["measurements"] == ("truth_table", "max_propagation_delay")
     assert "PULSE(0 1 0 10p 10p 500p 1n)" in render_ngspice(task.circuit)
+
+
+def test_testbench_json_view_does_not_execute_python_schematic_by_default(tmp_path):
+    lib = Library.create(tmp_path / "lib", name="lib")
+    cell = lib.create_cell("inverter")
+    marker = tmp_path / "executed.txt"
+    _write_json(cell.path / "schematic.monata.json", _schematic_payload())
+    (cell.path / "schematic.py").write_text(f"from pathlib import Path\nPath({str(marker)!r}).write_text('executed')\n")
+    _write_json(
+        cell.path / "testbench.monata.json",
+        {
+            "schema_version": 1,
+            "view_type": "testbench",
+            "dut": "inverter",
+            "analysis": {"kind": "tran", "step": "1p", "stop": "2n"},
+            "sources": [],
+        },
+    )
+    cell.create_view("schematic")
+    cell.create_view("testbench")
+
+    cell["testbench"].to_sim_task()
+
+    assert not marker.exists()
+
+
+def test_testbench_json_view_refuses_legacy_python_schematic_by_default(tmp_path):
+    lib = Library.create(tmp_path / "lib", name="lib")
+    cell = lib.create_cell("legacy")
+    marker = tmp_path / "executed.txt"
+    (cell.path / "schematic.py").write_text(
+        "from pathlib import Path\n"
+        f"Path({str(marker)!r}).write_text('executed')\n"
+        "from monata.netlist import SubCircuit\n"
+        "class Legacy(SubCircuit):\n"
+        "    NAME = 'legacy'\n"
+        "    NODES = ('a', 'z')\n"
+    )
+    _write_json(
+        cell.path / "testbench.monata.json",
+        {
+            "schema_version": 1,
+            "view_type": "testbench",
+            "dut": "legacy",
+            "analysis": {"kind": "tran", "step": "1p", "stop": "2n"},
+            "sources": [],
+        },
+    )
+    cell.create_view("testbench")
+    (cell.path / "cell.toml").write_text(
+        '[cell]\nname = "legacy"\n\n'
+        '[views]\n'
+        f'schematic = {{ entry = "schematic.py", format = "{LEGACY_SCHEMATIC_FORMAT}", trusted = true, class = "Legacy" }}\n'
+        'testbench = { entry = "testbench.monata.json", format = "monata-testbench-json", schema_version = 1 }\n'
+    )
+    cell._config = None
+
+    with pytest.raises(ValueError, match="legacy Python schematic format is no longer supported"):
+        cell["testbench"].to_sim_task()
+    assert not marker.exists()
 
 
 @pytest.mark.parametrize(

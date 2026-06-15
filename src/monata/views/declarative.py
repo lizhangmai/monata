@@ -2,21 +2,23 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Mapping
 import json
 import re
 from typing import Any, cast
 
 from monata.errors import ViewNotGeneratedError
 from monata.netlist import Circuit, SubCircuit
+from monata.schematic import SchematicData, load_schematic, schematic_to_subcircuit
 from monata.views.base import View
 
 MONATA_SCHEMATIC_JSON = "monata-schematic-json"
 MONATA_SYMBOL_JSON = "monata-symbol-json"
 MONATA_TESTBENCH_JSON = "monata-testbench-json"
-PYTHON_SCHEMATIC = "python-schematic"
 PYTHON_TESTBENCH = "python-testbench"
 SCHEMA_VERSION = 1
+SCHEMATIC_SCHEMA_VERSION = 2
+_REMOVED_PYTHON_SCHEMATIC_FORMAT = "python-" + "schematic"
 
 _NUMBER_RE = re.compile(r"^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)([A-Za-zµ]*)\s*$")
 _UNIT_FACTORS = {
@@ -44,7 +46,7 @@ class SchematicJsonView(View):
         *,
         view_type: str = "schematic",
         generated: bool = False,
-        schema_version: int | None = SCHEMA_VERSION,
+        schema_version: int | None = SCHEMATIC_SCHEMA_VERSION,
     ):
         super().__init__(
             view_type=view_type,
@@ -56,20 +58,20 @@ class SchematicJsonView(View):
             schema_version=schema_version,
         )
 
-    def read(self) -> dict[str, Any]:
-        return _validate_schematic_payload(
+    def read(self) -> SchematicData:
+        return load_schematic(
             _read_json_object(self, generated=False),
-            cell_name=getattr(self.cell, "name", None),
+            default_cell=getattr(self.cell, "name", None),
         )
 
-    def load(self) -> dict[str, Any]:
+    def load(self) -> SchematicData:
         return self.read()
 
     def to_circuit(self) -> SubCircuit:
-        return schematic_payload_to_circuit(self.read(), default_name=str(self.cell.name))
+        return schematic_to_subcircuit(self.read())
 
     def pin_names(self) -> tuple[str, ...]:
-        return tuple(pin["name"] for pin in self.read()["pins"])
+        return self.read().pin_names
 
 
 class SymbolJsonView(View):
@@ -195,16 +197,11 @@ def schematic_view_to_circuit(
             raise TypeError(f"{reason}: schematic data view is not convertible to a circuit")
         return _require_native_netlist(to_circuit(), reason=reason)
 
-    if view_format == PYTHON_SCHEMATIC:
-        if not allow_trusted_python:
-            raise TypeError(f"{reason}: refusing to execute trusted Python schematic view")
-        if not getattr(view, "trusted", False):
-            raise ValueError(f"{reason}: python-schematic views require trusted = true")
-        load_trusted = getattr(view, "load_trusted", None)
-        if not callable(load_trusted):
-            raise TypeError(f"{reason}: python-schematic view does not implement load_trusted()")
-        return _require_native_netlist(_materialize_native_netlist(load_trusted()), reason=reason)
-
+    if view_format == _REMOVED_PYTHON_SCHEMATIC_FORMAT:
+        raise TypeError(
+            f"{reason}: legacy Python schematic format is no longer supported for canonical schematic views; "
+            "use monata-schematic-json structured schematic data"
+        )
     raise TypeError(f"{reason}: unsupported schematic view format {view_format!r}")
 
 
@@ -242,12 +239,7 @@ def schematic_view_to_subcircuit(
 
 
 def schematic_payload_to_circuit(payload: Mapping[str, Any], *, default_name: str) -> SubCircuit:
-    data = _validate_schematic_payload(payload, cell_name=default_name)
-    circuit = SubCircuit(name=str(data.get("cell") or default_name), nodes=tuple(pin["name"] for pin in data["pins"]))
-    for instance in data["instances"]:
-        _add_schematic_instance(circuit, instance)
-    circuit.ensure_built()
-    return circuit
+    return schematic_to_subcircuit(load_schematic(payload, default_cell=default_name))
 
 
 def parse_metric_number(value: Any, *, field: str) -> float:
@@ -278,28 +270,6 @@ def _read_json_object(view: View, *, generated: bool) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError(f"{view.entry} must contain a JSON object")
     return data
-
-
-def _validate_schematic_payload(payload: Mapping[str, Any], *, cell_name: str | None) -> dict[str, Any]:
-    data = _expect_mapping(payload, "schematic")
-    _reject_unknown_fields(data, {"schema_version", "view_type", "cell", "pins", "instances", "nets"})
-    _require_schema(data, view_type="schematic")
-    cell = _optional_string(data.get("cell"), "schematic.cell") or cell_name
-    if not cell:
-        raise ValueError("schematic.cell is required")
-    pins = _validate_pins(data.get("pins"), "schematic.pins", allowed={"name", "direction"})
-    instance_items = _list_or_empty(data.get("instances"))
-    instances = [_validate_instance(item, index) for index, item in enumerate(instance_items)]
-    nets = tuple(_validate_string_list(data.get("nets"), "schematic.nets")) if "nets" in data else _infer_nets(pins, instances)
-    _validate_schematic_nets(pins, instances, nets)
-    return {
-        "schema_version": SCHEMA_VERSION,
-        "view_type": "schematic",
-        "cell": cell,
-        "pins": pins,
-        "instances": instances,
-        "nets": list(nets),
-    }
 
 
 def _validate_symbol_payload(payload: Mapping[str, Any], *, cell_name: str | None) -> dict[str, Any]:
@@ -361,45 +331,6 @@ def _validate_pins(value: Any, label: str, *, allowed: set[str]) -> list[dict[st
     return result
 
 
-def _validate_instance(value: Any, index: int) -> dict[str, Any]:
-    label = f"schematic.instances[{index}]"
-    item = _expect_mapping(value, label)
-    _reject_unknown_fields(
-        item,
-        {
-            "name",
-            "kind",
-            "device",
-            "model",
-            "subckt",
-            "lib",
-            "cell",
-            "view",
-            "connections",
-            "pin_order",
-            "nodes",
-            "parameters",
-            "value",
-        },
-    )
-    connections = _validate_connections(item.get("connections"), f"{label}.connections")
-    parameters = item.get("parameters", {})
-    if not isinstance(parameters, Mapping):
-        raise ValueError(f"{label}.parameters must be an object")
-    normalized = {
-        "name": _required_string(item.get("name"), f"{label}.name"),
-        "connections": connections,
-        "parameters": dict(parameters),
-    }
-    for key in ("kind", "device", "model", "subckt", "lib", "cell", "view", "value"):
-        if key in item:
-            normalized[key] = item[key]
-    for key in ("pin_order", "nodes"):
-        if key in item:
-            normalized[key] = _validate_string_list(item[key], f"{label}.{key}")
-    return normalized
-
-
 def _validate_source(value: Any, index: int) -> dict[str, Any]:
     label = f"testbench.sources[{index}]"
     item = _expect_mapping(value, label)
@@ -443,135 +374,6 @@ def _copy_source_endpoint(source: Mapping[str, Any], target: dict[str, Any], lab
         target["n"] = _required_string(source["n"], f"{label}.n")
     if "ref" in source:
         target["ref"] = _required_string(source["ref"], f"{label}.ref")
-
-
-def _validate_connections(value: Any, label: str) -> dict[str, str]:
-    mapping = _expect_mapping(value, label)
-    result = {}
-    for key, node in mapping.items():
-        result[_required_string(key, f"{label} key")] = _required_string(node, f"{label}.{key}")
-    return result
-
-
-def _validate_schematic_nets(pins: Sequence[Mapping[str, str]], instances: Sequence[Mapping[str, Any]], nets: Sequence[str]) -> None:
-    known = set(nets)
-    missing = [pin["name"] for pin in pins if pin["name"] not in known]
-    for instance in instances:
-        for node in instance["connections"].values():
-            if node not in known:
-                missing.append(str(node))
-    if missing:
-        raise ValueError("schematic.nets is missing referenced net(s): " + ", ".join(sorted(set(missing))))
-
-
-def _infer_nets(pins: Sequence[Mapping[str, str]], instances: Sequence[Mapping[str, Any]]) -> tuple[str, ...]:
-    names = [pin["name"] for pin in pins]
-    for instance in instances:
-        for node in instance["connections"].values():
-            if node not in names:
-                names.append(str(node))
-    return tuple(names)
-
-
-def _add_schematic_instance(scope: SubCircuit, instance: Mapping[str, Any]) -> None:
-    name = str(instance["name"])
-    connections = dict(instance["connections"])
-    params = dict(instance.get("parameters", {}))
-    kind = str(instance.get("kind") or instance.get("device") or "").lower()
-    device = instance.get("device")
-    if _is_pdk_instance(kind, instance):
-        scope.pdk_instance(
-            name,
-            lib=str(instance["lib"]),
-            cell=str(instance["cell"]),
-            view=str(instance["view"]),
-            pins=connections,
-            params=params,
-        )
-        return
-    if _is_mos_instance(kind, connections):
-        model = str(instance.get("model") or device or kind)
-        scope.mos(
-            name,
-            d=connections["d"],
-            g=connections["g"],
-            s=connections["s"],
-            b=connections["b"],
-            model=model,
-            **params,
-        )
-        return
-    if kind in {"resistor", "res", "r"}:
-        scope.resistor(name, connections["n1"], connections["n2"], _instance_value(instance, params), **params)
-        return
-    if kind in {"capacitor", "cap", "c"}:
-        scope.capacitor(name, connections["n1"], connections["n2"], _instance_value(instance, params), **params)
-        return
-    if kind in {"inductor", "ind", "l"}:
-        scope.inductor(name, connections["n1"], connections["n2"], _instance_value(instance, params), **params)
-        return
-    if kind in {"voltage", "vsource", "v"}:
-        p, n = _source_nodes(connections)
-        scope.voltage(name, p, n, _instance_value(instance, params), **params)
-        return
-    if kind in {"current", "isource", "i"}:
-        p, n = _source_nodes(connections)
-        scope.current(name, p, n, _instance_value(instance, params), **params)
-        return
-    if kind in {"vpulse", "ipulse"}:
-        p, n = _source_nodes(connections)
-        values = _source_values(instance, count=7)
-        if kind == "vpulse":
-            scope.vpulse(name, p, n, *values, **params)
-        else:
-            scope.ipulse(name, p, n, *values, **params)
-        return
-    if _is_subckt_instance(kind, instance):
-        subckt = str(instance.get("subckt") or instance.get("device") or instance.get("cell"))
-        if "nodes" in instance:
-            scope.instance(name, instance["nodes"], subckt, **params)
-        else:
-            scope.instance_pins(name, subckt, connections, pin_order=instance.get("pin_order"), **params)
-        return
-    raise ValueError(f"unsupported schematic instance kind for {name!r}: {kind or device!r}")
-
-
-def _is_pdk_instance(kind: str, instance: Mapping[str, Any]) -> bool:
-    return kind == "pdk" or all(key in instance for key in ("lib", "cell", "view"))
-
-
-def _is_mos_instance(kind: str, connections: Mapping[str, str]) -> bool:
-    return kind in {"mos", "mosfet", "nmos", "pmos"} or {"d", "g", "s", "b"} <= set(connections)
-
-
-def _is_subckt_instance(kind: str, instance: Mapping[str, Any]) -> bool:
-    return kind in {"instance", "subckt", "subcircuit", "x"} or "subckt" in instance
-
-
-def _instance_value(instance: Mapping[str, Any], params: dict[str, Any]) -> Any:
-    if "value" in instance:
-        return instance["value"]
-    try:
-        return params.pop("value")
-    except KeyError as exc:
-        raise ValueError(f"schematic instance {instance['name']!r} is missing value") from exc
-
-
-def _source_values(instance: Mapping[str, Any], *, count: int) -> list[Any]:
-    values = instance.get("values") or instance.get("value")
-    if not isinstance(values, list):
-        raise ValueError(f"schematic instance {instance['name']!r} requires values array")
-    if len(values) != count:
-        raise ValueError(f"schematic instance {instance['name']!r} requires {count} values")
-    return list(values)
-
-
-def _source_nodes(connections: Mapping[str, str]) -> tuple[str, str]:
-    if "p" in connections and "n" in connections:
-        return connections["p"], connections["n"]
-    if "node" in connections and "ref" in connections:
-        return connections["node"], connections["ref"]
-    raise ValueError("source connections require p/n or node/ref")
 
 
 def _resolve_dut_cell(cell: Any, library: Any, dut_name: str) -> Any:
@@ -656,12 +458,6 @@ def _optional_metric_number(value: Any, *, field: str) -> float | None:
     if value is None:
         return None
     return parse_metric_number(value, field=field)
-
-
-def _materialize_native_netlist(value: Any) -> Circuit | SubCircuit:
-    if isinstance(value, type):
-        value = value()
-    return value
 
 
 def _require_native_netlist(value: Any, *, reason: str) -> Circuit | SubCircuit:

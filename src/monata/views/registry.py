@@ -15,6 +15,8 @@ ViewConfigOptions: TypeAlias = Mapping[str, object]
 ViewFactory = Callable[[Any, ViewConfig], Any]
 ViewConfigFactory = Callable[[str, ViewConfigOptions, "ViewSchema"], ViewConfig]
 ViewGenerator = Callable[..., Path]
+_REMOVED_SCHEMATIC_PY_VIEW = "schematic" + "_py"
+_REMOVED_PYTHON_SCHEMATIC_FORMAT = "python-" + "schematic"
 
 
 def _view_type_key(view_type: object) -> str:
@@ -121,6 +123,7 @@ class ViewRegistry:
         return schema.factory if schema is not None else None
 
     def create_config(self, view_type: str, options: ViewConfigOptions) -> MutableViewConfig:
+        _reject_removed_schematic_view(view_type, options.get("format"))
         schema = None
         requested_format = options.get("format")
         if requested_format is not None:
@@ -142,6 +145,7 @@ class ViewRegistry:
     def _schema_for_view_config(self, view_type: str, config: ViewConfig) -> ViewSchema | None:
         if "format" in config:
             view_format = _format_key(config["format"])
+            _reject_removed_schematic_view(view_type, view_format)
             _validate_trusted_format(view_format, config)
             schema = self.get_schema_for_format(view_format)
             if schema is None:
@@ -225,17 +229,8 @@ def _register_defaults() -> None:
         replace=True,
         default_entry="schematic.monata.json",
         view_format="monata-schematic-json",
-        schema_version=1,
+        schema_version=2,
         config_factory=_schematic_config,
-    )
-    register_view_type(
-        "schematic_py",
-        _schematic_python_view,
-        replace=True,
-        default_entry="schematic.py",
-        view_format="python-schematic",
-        trusted=True,
-        config_factory=_schematic_py_config,
     )
     register_view_type(
         "testbench",
@@ -299,18 +294,6 @@ def _schematic_json_view(cell: Any, cfg: ViewConfig) -> Any:
         entry=str(cfg["entry"]),
         generated=bool(cfg.get("generated", False)),
         schema_version=_optional_int(cfg.get("schema_version")),
-    )
-
-
-def _schematic_python_view(cell: Any, cfg: ViewConfig) -> Any:
-    from monata.views.schematic import SchematicView
-
-    trusted = _trusted_python_config(cfg, view_format="python-schematic")
-    return SchematicView(
-        cell=cell,
-        entry=str(cfg["entry"]),
-        cls_name=str(cfg["class"]),
-        trusted=trusted,
     )
 
 
@@ -383,13 +366,27 @@ def _schematic_config(view_type: str, options: ViewConfigOptions, schema: ViewSc
     if any(key in options for key in ("cls_name", "class")):
         raise ValueError(
             "monata-schematic-json views cannot include Python class metadata; "
-            "use schematic_py with trusted = true"
+            "Python schematic metadata is not supported for the canonical schematic view"
         )
     return {
         "entry": options.get("entry", schema.default_entry or "schematic.monata.json"),
         "format": "monata-schematic-json",
-        "schema_version": options.get("schema_version", 1),
+        "schema_version": options.get("schema_version", 2),
     }
+
+
+def _unsupported_python_schematic_message() -> str:
+    return (
+        "legacy Python schematic format is no longer supported for canonical schematic views; "
+        "use monata-schematic-json structured schematic data"
+    )
+
+
+def _reject_removed_schematic_view(view_type: object, view_format: object | None = None) -> None:
+    if view_type == _REMOVED_SCHEMATIC_PY_VIEW:
+        raise ValueError("removed Python schematic view type is no longer built in; " + _unsupported_python_schematic_message())
+    if view_format == _REMOVED_PYTHON_SCHEMATIC_FORMAT:
+        raise ValueError(_unsupported_python_schematic_message())
 
 
 def _testbench_config(view_type: str, options: ViewConfigOptions, schema: ViewSchema) -> MutableViewConfig:
@@ -418,18 +415,6 @@ def _symbol_config(view_type: str, options: ViewConfigOptions, schema: ViewSchem
     }
 
 
-def _schematic_py_config(view_type: str, options: ViewConfigOptions, schema: ViewSchema) -> MutableViewConfig:
-    _require_trusted_option(options, view_format="python-schematic")
-    if "cls_name" not in options:
-        raise KeyError("cls_name")
-    return {
-        "entry": options.get("entry", schema.default_entry or "schematic.py"),
-        "format": "python-schematic",
-        "trusted": True,
-        "class": options["cls_name"],
-    }
-
-
 def _testbench_py_config(view_type: str, options: ViewConfigOptions, schema: ViewSchema) -> MutableViewConfig:
     _require_trusted_option(options, view_format="python-testbench")
     return {
@@ -441,10 +426,11 @@ def _testbench_py_config(view_type: str, options: ViewConfigOptions, schema: Vie
 
 
 def _reject_removed_view_metadata(view_type: str, config: ViewConfig) -> None:
+    _reject_removed_schematic_view(view_type, config.get("format"))
     if view_type == "schematic" and "class" in config:
         raise ValueError(
-            "schematic Python views require format = 'python-schematic' and trusted = true; "
-            "unformatted class metadata is not supported"
+            "schematic Python class metadata is no longer supported; "
+            "use monata-schematic-json structured schematic data"
         )
     if view_type == "testbench" and "function" in config:
         raise ValueError(
@@ -461,7 +447,7 @@ def _require_trusted_option(options: ViewConfigOptions, *, view_format: str) -> 
 
 
 def _validate_trusted_format(view_format: str, config: ViewConfig) -> None:
-    if view_format in {"python-schematic", "python-testbench"}:
+    if view_format == "python-testbench":
         _trusted_python_config(config, view_format=view_format)
 
 

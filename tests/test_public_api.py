@@ -510,10 +510,13 @@ def test_docs_call_out_trusted_python_view_loading():
 
     assert "schematic.monata.json" in readme
     assert "parsed and validated without executing project code" in readme
+    assert "default symbol generation" in readme
+    assert "do not execute a neighboring `schematic.py`" in readme
     assert "load_trusted()" in readme
+    assert "run_trusted()" in readme
     assert "trusted = true" in readme
-    assert "metadata without an explicit format" in readme
-    assert "view loading\nis not sandboxed" in readme
+    assert "Python remains useful\nas an authoring surface that writes data" in readme
+    assert "not\nsandboxed" in readme
     assert "trusted libraries" in readme
     assert "https://github.com/lizhangmai/monata-docs" in readme
     assert "docs/reference/api-boundaries.md" in readme

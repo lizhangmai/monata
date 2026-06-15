@@ -512,6 +512,6 @@ def _load_schematic_from_library(library: Any, cell_name: str, run_config: Any) 
 
     return schematic_view_to_subcircuit(
         library[cell_name]["schematic"],
-        allow_trusted_python=True,
+        allow_trusted_python=False,
         reason="digital_truth_table spec",
     )
