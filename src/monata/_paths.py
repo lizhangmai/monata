@@ -30,6 +30,29 @@ def validate_path_segment(value: Any, label: str = "name") -> str:
     return text
 
 
+def resolve_relative_path(
+    root: str | Path,
+    value: str,
+    *,
+    label: str = "path",
+    root_label: str = "root",
+) -> Path:
+    """Resolve a path under ``root`` after rejecting absolute and parent escapes."""
+
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{label} must be a non-empty relative path")
+    candidate = Path(value)
+    if candidate.is_absolute() or ".." in candidate.parts:
+        raise ValueError(f"{label} must be relative to the {root_label}: {value}")
+    root_path = Path(root).resolve()
+    resolved = (root_path / candidate).resolve()
+    try:
+        resolved.relative_to(root_path)
+    except ValueError as exc:
+        raise ValueError(f"{label} escapes the {root_label}: {value}") from exc
+    return resolved
+
+
 def expand_path(path: str | Path) -> Path:
     """Return a path with environment variables and user markers expanded."""
 

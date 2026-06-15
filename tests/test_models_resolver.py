@@ -306,6 +306,34 @@ def test_model_resolver_rejects_recipe_paths_that_escape_techlib_root(tmp_path):
         )
 
 
+@pytest.mark.parametrize("source_include", ["../defs.include", "/tmp/defs.include"])
+def test_model_resolver_rejects_source_includes_that_escape_source_root(tmp_path, source_include):
+    source_dir = tmp_path / "sources" / "bsimcmg"
+    source_dir.mkdir(parents=True)
+    (source_dir / "bsimcmg.va").write_text("module bsimcmg; endmodule\n")
+    techlib = _flow_test_techlib(
+        tmp_path,
+        packaged_osdi=False,
+        package_policy="bundled_source",
+        source_va="sources/bsimcmg/bsimcmg.va",
+        source_includes=(source_include,),
+    )
+    profile = ngspice_profile(osdi=CapabilityState.SUPPORTED)
+
+    with pytest.raises(TechlibError, match="model flow source include path must be relative to the source_va directory"):
+        resolve_model_flow(
+            techlib,
+            "tt",
+            simulator_profile=profile,
+            model_config=SimulationModelConfig(
+                simulator_profile=profile,
+                policy="osdi-first",
+                allow_external_osdi=False,
+                cache_dir=tmp_path / "cache",
+            ),
+        )
+
+
 def test_model_resolver_rejects_unknown_requires_keys(tmp_path):
     techlib = _flow_test_techlib(tmp_path, extra_requires={"future_magic": True})
     profile = native_level_profile(levels=(72,))

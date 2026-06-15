@@ -188,6 +188,37 @@ Monata can use:
 Users and downstream packagers remain responsible for installing external tools
 and complying with their upstream licenses.
 
+## Structured Digital Views
+
+Digital truth-table verification uses structured cellviews by default. A
+`digital_truth_table` view points at `digital_truth_table.monata.json` with
+`format = "monata-digital-truth-table-json"` and a `simulation` view points at
+`simulation.monata.json` with `format = "monata-simulation-json"`.
+
+`digital_truth_table.monata.json` uses `schema_version` and
+`view_type = "monata-digital-truth-table"` to describe verification intent:
+the DUT, stage, simulation mode, input and output pins, dependencies, rails,
+complement inputs, oracle, and an `expected` table
+reference. Expected tables stay in a separate file, usually cell-local
+`expected.json`, referenced by a relative `entry` with
+`format = "monata-expected-table-json"`.
+
+`simulation.monata.json` uses `schema_version`,
+`view_type = "monata-simulation"`, and
+`recipe_kind = "digital_truth_table_transient"` to describe the simulation
+recipe: transient timing, load capacitance, observation defaults, backend and
+projection data, SPICE options, model cards, and named `model_profiles`.
+Monata selects the profile from the run configuration, then adapts the recipe
+into the existing digital simulation engine.
+
+These JSON formats fail closed: unknown fields are rejected, `entry` paths must
+be relative to the cell directory, and absolute paths or `..` escapes are not
+accepted. JSON views cannot import modules, name functions, or execute
+arbitrary Python. Python is reserved for Monata engine implementation, authoring
+helpers that write structured views, and runner code that explicitly invokes
+external tools; it is not part of the canonical digital truth-table or
+simulation cellview path.
+
 ## Technology Libraries
 
 Monata can load reusable technology libraries from local resource directories
@@ -229,19 +260,26 @@ Long-form documentation lives outside this source package:
 ## Security
 
 Monata 0.2 treats ordinary cellviews as declarative data by default:
-`schematic.monata.json`, `symbol.monata.json`, and `testbench.monata.json` are
-parsed and validated without executing project code. For data views, `read()`
-returns the structured payload and `load()` remains a safe parse operation.
+`schematic.monata.json`, `symbol.monata.json`, `testbench.monata.json`,
+`digital_truth_table.monata.json`, and `simulation.monata.json` are parsed and
+validated. These views are parsed and validated without executing project code.
+For data views, `read()` returns the structured payload and `load()` remains a
+safe parse operation.
 
 Canonical schematics are structured data, and default symbol generation,
 netlist generation, JSON testbench DUT resolution, and digital truth-table DUT
-resolution do not execute a neighboring `schematic.py`. Python remains useful
-as an authoring surface that writes data, or as an explicit trusted extension
-for executable views such as Python testbenches. Python view metadata without
-an explicit format and `trusted = true` is rejected; `run_trusted()` and
-`load_trusted()` execute project code in the current Python process and are not
-sandboxed. Open, load, generate, and simulate executable views only from
-trusted libraries and project workspaces.
+resolution do not execute a neighboring `schematic.py`. Canonical digital
+truth-table and simulation data views also do not execute neighboring
+`verification.py` or `simulation.py` files. Cellview metadata that describes
+Python execution is rejected instead of ignored.
+
+### External Tool Boundary
+
+Running a simulation is an explicit execution boundary. Monata does not bundle
+or sandbox simulators; simulation/executor flows invoke user-installed external
+tools such as ngspice or OpenVAF according to trusted runtime configuration.
+This boundary is separate from `load()` and `read()`, which only parse
+structured data.
 
 ## License
 

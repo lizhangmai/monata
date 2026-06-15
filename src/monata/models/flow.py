@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 from typing import Any, Literal
 
+from monata._paths import resolve_relative_path
 from monata.models.artifacts import ModelArtifact
 from monata.models.diagnostics import ModelDiagnostic
 from monata.models.manifest import ModelSelection
@@ -230,14 +231,12 @@ class ResolvedModelFlow:
 def path_from_recipe(root: Path, value: str | None) -> Path | None:
     if value is None:
         return None
-    candidate = Path(value)
-    text = str(value)
-    if candidate.is_absolute() or ".." in candidate.parts:
-        raise TechlibError(f"model flow path must be relative to the techlib root: {text}")
-    root_resolved = root.resolve()
-    path = (root_resolved / candidate).resolve()
     try:
-        path.relative_to(root_resolved)
+        return resolve_relative_path(
+            root,
+            str(value),
+            label="model flow path",
+            root_label="techlib root",
+        )
     except ValueError as exc:
-        raise TechlibError(f"model flow path escapes techlib root: {text}") from exc
-    return path
+        raise TechlibError(str(exc)) from exc

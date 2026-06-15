@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from monata._paths import resolve_relative_path
 from monata.models.artifacts import ModelArtifact, artifact_sha256
 from monata.models.cache import ModelCache, resolve_model_cache_dir
 from monata.models.compiler import ModelCompiler
@@ -409,14 +410,15 @@ def _source_include_paths(recipe: ModelFlowRecipe, source_path: Path) -> tuple[P
     includes: list[Path] = []
     seen: set[Path] = set()
     for value in recipe.source_includes:
-        relative = Path(value)
-        if relative.is_absolute() or ".." in relative.parts:
-            raise TechlibError(f"model flow source include path must be relative to source_va: {value}")
-        path = (source_dir / relative).resolve()
         try:
-            path.relative_to(source_dir)
+            path = resolve_relative_path(
+                source_dir,
+                str(value),
+                label="model flow source include path",
+                root_label="source_va directory",
+            )
         except ValueError as exc:
-            raise TechlibError(f"model flow source include path escapes source_va directory: {value}") from exc
+            raise TechlibError(str(exc)) from exc
         if path not in seen:
             seen.add(path)
             includes.append(path)

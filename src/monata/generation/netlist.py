@@ -34,7 +34,6 @@ def generate_netlist(
     schematic_view = cell["schematic"]
     native_netlist = schematic_view_to_circuit(
         schematic_view,
-        allow_trusted_python=False,
         reason="generate_netlist",
     )
     _apply_generation_projection(

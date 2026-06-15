@@ -11,11 +11,11 @@ from monata.errors import ViewNotGeneratedError
 from monata.netlist import Circuit, SubCircuit
 from monata.schematic import SchematicData, load_schematic, schematic_to_subcircuit
 from monata.views.base import View
+from monata.views.path_safety import resolve_cell_relative_path
 
 MONATA_SCHEMATIC_JSON = "monata-schematic-json"
 MONATA_SYMBOL_JSON = "monata-symbol-json"
 MONATA_TESTBENCH_JSON = "monata-testbench-json"
-PYTHON_TESTBENCH = "python-testbench"
 SCHEMA_VERSION = 1
 SCHEMATIC_SCHEMA_VERSION = 2
 _REMOVED_PYTHON_SCHEMATIC_FORMAT = "python-" + "schematic"
@@ -54,7 +54,6 @@ class SchematicJsonView(View):
             entry=entry,
             generated=generated,
             format=MONATA_SCHEMATIC_JSON,
-            trusted=False,
             schema_version=schema_version,
         )
 
@@ -92,7 +91,6 @@ class SymbolJsonView(View):
             entry=entry,
             generated=generated,
             format=MONATA_SYMBOL_JSON,
-            trusted=False,
             schema_version=schema_version,
         )
 
@@ -133,7 +131,6 @@ class TestbenchJsonView(View):
             entry=entry,
             generated=generated,
             format=MONATA_TESTBENCH_JSON,
-            trusted=False,
             schema_version=schema_version,
         )
 
@@ -150,7 +147,6 @@ class TestbenchJsonView(View):
         self,
         *,
         library: Any = None,
-        allow_trusted_python: bool = False,
         simulator: str | None = None,
     ):
         from monata.sim.core import SimTask
@@ -159,7 +155,6 @@ class TestbenchJsonView(View):
         dut_cell = _resolve_dut_cell(self.cell, library, payload["dut"])
         dut = schematic_view_to_circuit(
             dut_cell["schematic"],
-            allow_trusted_python=allow_trusted_python,
             reason="testbench JSON DUT",
         )
         circuit = _testbench_circuit_for(dut, dut_name=payload["dut"])
@@ -185,7 +180,6 @@ class TestbenchJsonView(View):
 def schematic_view_to_circuit(
     view: Any,
     *,
-    allow_trusted_python: bool,
     reason: str,
 ) -> Circuit | SubCircuit:
     """Resolve a schematic view to native netlist IR without hidden Python fallback."""
@@ -208,7 +202,6 @@ def schematic_view_to_circuit(
 def schematic_pin_names(
     view: Any,
     *,
-    allow_trusted_python: bool,
     reason: str,
 ) -> tuple[str, ...]:
     pin_names = getattr(view, "pin_names", None)
@@ -216,7 +209,6 @@ def schematic_pin_names(
         return tuple(str(pin) for pin in cast(Iterable[Any], pin_names()))
     circuit = schematic_view_to_circuit(
         view,
-        allow_trusted_python=allow_trusted_python,
         reason=reason,
     )
     return tuple(str(node) for node in getattr(circuit, "nodes", ()))
@@ -225,12 +217,10 @@ def schematic_pin_names(
 def schematic_view_to_subcircuit(
     view: Any,
     *,
-    allow_trusted_python: bool,
     reason: str,
 ) -> SubCircuit:
     circuit = schematic_view_to_circuit(
         view,
-        allow_trusted_python=allow_trusted_python,
         reason=reason,
     )
     if not isinstance(circuit, SubCircuit):
@@ -261,7 +251,11 @@ def parse_metric_number(value: Any, *, field: str) -> float:
 
 
 def _read_json_object(view: View, *, generated: bool) -> dict[str, Any]:
-    file_path = view.path() / view.entry
+    file_path = resolve_cell_relative_path(
+        view.path(),
+        view.entry,
+        label=f"{view.view_type}.entry",
+    )
     if not file_path.exists():
         if generated:
             raise ViewNotGeneratedError(view.view_type, view.cell.name)

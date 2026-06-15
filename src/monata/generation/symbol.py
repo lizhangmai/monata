@@ -13,7 +13,6 @@ def generate_symbol(cell, *, force: bool = False) -> Path:
     schematic_view = cell["schematic"]
     nodes = schematic_pin_names(
         schematic_view,
-        allow_trusted_python=False,
         reason="generate_symbol",
     )
     payload = {

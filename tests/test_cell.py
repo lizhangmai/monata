@@ -102,12 +102,13 @@ def test_cell_getitem_schematic(tmp_path):
 
 
 def test_cell_getitem_testbench(tmp_path):
-    views_toml = 'testbench = { entry = "testbench.py", format = "python-testbench", trusted = true, function = "main" }\n'
+    views_toml = 'testbench = { entry = "testbench.monata.json", format = "monata-testbench-json", schema_version = 1 }\n'
     cell_dir = _make_cell(tmp_path, views_toml=views_toml)
     lib = MagicMock()
     cell = Cell(cell_dir, lib)
     view = cell["testbench"]
     assert view.view_type == "testbench"
+    assert view.entry == "testbench.monata.json"
 
 
 def test_cell_getitem_netlist(tmp_path):
@@ -140,7 +141,17 @@ def test_cell_getitem_symbol(tmp_path):
         (
             'testbench = { entry = "testbench.py", function = "main" }\n',
             "testbench",
-            "format = 'python-testbench'",
+            "executable Python metadata",
+        ),
+        (
+            'testbench = { entry = "testbench.py", format = "python-testbench" }\n',
+            "testbench",
+            "Python testbench cellviews are no longer supported",
+        ),
+        (
+            'testbench = { entry = "testbench.monata.json", format = "monata-testbench-json", trusted = false }\n',
+            "testbench",
+            "executable Python metadata",
         ),
         (
             'symbol = { entry = "symbol.toml", generated = true }\n',
@@ -257,7 +268,7 @@ def test_cell_create_view_rejects_removed_implicit_python_metadata_without_writi
     with pytest.raises(ValueError, match="cannot include Python class metadata"):
         cell.create_view("schematic", entry="schematic.py", cls_name="Inv")
 
-    with pytest.raises(ValueError, match="use testbench_py"):
+    with pytest.raises(ValueError, match="executable Python metadata"):
         cell.create_view("testbench", entry="testbench.py", function_name="main")
 
     with pytest.raises(ValueError, match="symbol.monata.json"):

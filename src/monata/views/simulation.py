@@ -8,7 +8,9 @@ from pathlib import Path
 from typing import Any
 
 from monata.sim.core import LocalExecutor, SimArtifactOptions, SimResult, SimTask
+from monata.sim.digital_recipe import DigitalSimulationRecipe
 from monata.views.base import View
+from monata.views.path_safety import read_cell_json_mapping
 
 SimulationProgressCallback = Callable[[dict[str, Any]], None]
 
@@ -45,19 +47,29 @@ class SimulationView(View):
         self,
         cell,
         entry: str,
-        function_name: str = "main",
         *,
         backend: str | None = None,
         max_workers: int | None = None,
         generated: bool = False,
+        view_format: str | None = None,
+        schema_version: int | None = None,
     ):
-        super().__init__(view_type="simulation", cell=cell, entry=entry, generated=generated)
-        self._function_name = function_name
+        super().__init__(
+            view_type="simulation",
+            cell=cell,
+            entry=entry,
+            generated=generated,
+            format=view_format,
+            schema_version=schema_version,
+        )
         self._backend = backend
         self._max_workers = max_workers
 
-    def load(self):
-        return self.load_python_attribute("simulation", self._function_name)
+    def load(self) -> Any:
+        raise TypeError(
+            "SimulationView no longer loads Python factories; use "
+            "SimulationRecipeView for data recipes or run explicit task/tasks"
+        )
 
     def run(
         self,
@@ -86,29 +98,10 @@ class SimulationView(View):
                 metadata=metadata,
             )
 
-        func = self.load()
-        produced = func(self.cell, **kwargs)
-        if isinstance(produced, SimTask):
-            return self._result(
-                (self.run_task(produced, executor=executor, artifact_dir=artifact_dir, progress=progress),),
-                mode=mode,
-                metadata=metadata,
-            )
-        produced_tasks = _as_sim_tasks(produced)
-        if produced_tasks is not None:
-            return self._result(
-                tuple(
-                    self.run_tasks(
-                        produced_tasks,
-                        executor=executor,
-                        artifact_dir=artifact_dir,
-                        progress=progress,
-                    )
-                ),
-                mode=mode,
-                metadata=metadata,
-            )
-        return produced
+        if kwargs:
+            unknown = ", ".join(sorted(kwargs))
+            raise TypeError(f"unsupported simulation run options: {unknown}")
+        raise TypeError("SimulationView.run() requires explicit task or tasks")
 
     def run_task(
         self,
@@ -200,16 +193,66 @@ class SimulationView(View):
         )
 
 
-def _as_sim_tasks(value: object) -> tuple[SimTask, ...] | None:
-    if isinstance(value, (str, bytes)):
-        return None
-    try:
-        items = list(value)  # type: ignore[arg-type]
-    except TypeError:
-        return None
-    if not items or not all(isinstance(item, SimTask) for item in items):
-        return None
-    return tuple(items)
+class SimulationRecipeView(SimulationView):
+    """Data-only simulation recipe view for digital truth-table execution."""
+
+    def __init__(
+        self,
+        cell,
+        entry: str,
+        *,
+        generated: bool = False,
+        schema_version: int | None = 1,
+    ):
+        super().__init__(
+            cell=cell,
+            entry=entry,
+            generated=generated,
+            view_format="monata-simulation-json",
+            schema_version=schema_version,
+        )
+
+    def load(self) -> DigitalSimulationRecipe:
+        payload = read_cell_json_mapping(
+            self.path(),
+            self.entry,
+            label="simulation.entry",
+        )
+        _validate_schema_version(payload, self.schema_version, label="simulation")
+        return DigitalSimulationRecipe.from_mapping(payload)
+
+    def run(
+        self,
+        *,
+        task: SimTask | None = None,
+        tasks: Iterable[SimTask] | None = None,
+        executor=None,
+        mode: str = "simulation",
+        metadata: dict[str, Any] | None = None,
+        artifact_dir: str | Path | None = None,
+        progress: SimulationProgressCallback | None = None,
+        **kwargs: Any,
+    ) -> SimulationViewResult:
+        if kwargs:
+            unknown = ", ".join(sorted(kwargs))
+            raise TypeError(f"unsupported simulation recipe run options: {unknown}")
+        if task is None and tasks is None:
+            raise TypeError(
+                "monata-simulation-json views are recipes; run the owning "
+                "digital_truth_table view or provide explicit task/tasks"
+            )
+        return super().run(
+            task=task,
+            tasks=tasks,
+            executor=executor,
+            mode=mode,
+            metadata=metadata,
+            artifact_dir=artifact_dir,
+            progress=progress,
+        )
+
+    def transient_observation(self) -> Any:
+        return self.load().observation
 
 
 def _emit_progress(
@@ -253,6 +296,19 @@ def _require_result(result: SimResult | None) -> SimResult:
     if result is None:
         raise RuntimeError("simulation task completed without a result")
     return result
+
+
+def _validate_schema_version(
+    payload: Mapping[str, Any],
+    expected: int | None,
+    *,
+    label: str,
+) -> None:
+    if expected is None:
+        return
+    actual = payload.get("schema_version")
+    if actual != expected:
+        raise ValueError(f"{label} schema_version {actual!r} does not match view config {expected}")
 
 
 def _with_artifact_dirs(tasks: list[SimTask], artifact_dir: str | Path | None) -> list[SimTask]:

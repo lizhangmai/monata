@@ -18,6 +18,7 @@ from monata.sim.digital_claims import (
 
 __all__ = [
     "DigitalTruthTableSpec",
+    "ExpectedTableReference",
     "ExpectedLike",
     "ExpectedTable",
 ]
@@ -113,6 +114,50 @@ class ExpectedTable:
 ExpectedLike = ExpectedFn | ExpectedTable
 
 
+_DIGITAL_TRUTH_TABLE_FIELDS = frozenset({
+    "schema_version",
+    "view_type",
+    "dut",
+    "stage",
+    "simulation_mode",
+    "inputs",
+    "outputs",
+    "dependencies",
+    "rails",
+    "complement_inputs",
+    "oracle",
+    "expected",
+    "metadata",
+})
+
+_EXPECTED_TABLE_REFERENCE_FIELDS = frozenset({
+    "entry",
+    "format",
+})
+
+
+@dataclass(frozen=True)
+class ExpectedTableReference:
+    """A path-agnostic reference to an expected-table data file."""
+
+    entry: str
+    format: str = "monata-expected-table-json"
+
+    @classmethod
+    def from_mapping(cls, payload: Mapping[str, Any]) -> "ExpectedTableReference":
+        _reject_unknown(payload, _EXPECTED_TABLE_REFERENCE_FIELDS, "expected table reference")
+        if "entry" not in payload:
+            raise ValueError("expected table reference requires entry")
+        entry = _required_string(payload["entry"], "expected.entry")
+        format_name = str(payload.get("format", "monata-expected-table-json"))
+        if format_name != "monata-expected-table-json":
+            raise ValueError(f"unsupported expected table format: {format_name}")
+        return cls(entry=entry, format=format_name)
+
+    def to_mapping(self) -> dict[str, object]:
+        return {"entry": self.entry, "format": self.format}
+
+
 @dataclass(frozen=True)
 class DigitalTruthTableSpec:
     """Project-declared truth-table view data.
@@ -134,6 +179,55 @@ class DigitalTruthTableSpec:
     transient_observation: DigitalTransientObservation | None = None
     stage: str = "custom"
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    expected_ref: ExpectedTableReference | Mapping[str, Any] | None = None
+
+    @classmethod
+    def from_mapping(
+        cls,
+        payload: Mapping[str, Any],
+        *,
+        expected: ExpectedLike | None = None,
+    ) -> "DigitalTruthTableSpec":
+        """Parse the canonical data-only digital truth-table JSON shape.
+
+        The parser deliberately stays filesystem-agnostic. Loader code resolves
+        ``expected.entry`` and passes the parsed table through ``expected``.
+        """
+
+        _reject_unknown(payload, _DIGITAL_TRUTH_TABLE_FIELDS, "digital truth-table spec")
+        schema_version = payload.get("schema_version")
+        if schema_version != 1:
+            raise ValueError(f"unsupported digital truth-table schema_version: {schema_version}")
+        view_type = str(payload.get("view_type", ""))
+        if view_type != "monata-digital-truth-table":
+            raise ValueError(f"unsupported digital truth-table view_type: {view_type}")
+        if "expected" not in payload:
+            raise ValueError("digital truth-table spec requires expected")
+        expected_ref = ExpectedTableReference.from_mapping(
+            _required_mapping(payload["expected"], "expected")
+        )
+        inputs = _string_tuple(payload.get("inputs"), "inputs", require_nonempty=True)
+        complement_inputs = _complement_inputs_from_mapping(
+            payload.get("complement_inputs", {}),
+            inputs=inputs,
+        )
+        metadata = dict(_optional_mapping(payload.get("metadata"), "metadata"))
+        if "simulation_view" in metadata:
+            raise ValueError("digital truth-table metadata cannot include simulation_view")
+        return cls(
+            dut=_required_string(payload.get("dut"), "dut"),
+            inputs=inputs,
+            outputs=_string_tuple(payload.get("outputs"), "outputs", require_nonempty=True),
+            expected=expected,
+            oracle=str(payload.get("oracle", "exact")),
+            dependencies=_string_tuple(payload.get("dependencies", ()), "dependencies"),
+            rails=_rails_from_mapping(payload.get("rails", {"vdd": "vdd", "vss": "0"})),
+            complement_inputs=complement_inputs,
+            simulation_mode=str(payload.get("simulation_mode", "transient")),
+            stage=str(payload.get("stage", "custom")),
+            metadata=metadata,
+            expected_ref=expected_ref,
+        )
 
     @property
     def row_count(self) -> int:
@@ -147,14 +241,129 @@ class DigitalTruthTableSpec:
     def claim_summary(self) -> dict[str, object]:
         return DigitalVerificationClaim.from_dict(self.claim).summary()
 
+    def to_mapping(self) -> dict[str, object]:
+        data: dict[str, object] = {
+            "schema_version": 1,
+            "view_type": "monata-digital-truth-table",
+            "dut": self.dut,
+            "stage": self.stage,
+            "simulation_mode": self.simulation_mode,
+            "inputs": list(self.inputs),
+            "outputs": list(self.outputs),
+            "dependencies": list(self.dependencies),
+            "rails": {"vdd": self.rails[0], "vss": self.rails[1]},
+            "complement_inputs": _complement_inputs_to_mapping(
+                self.inputs,
+                self.complement_inputs,
+            ),
+            "oracle": self.oracle,
+        }
+        metadata = dict(self.metadata)
+        if self.expected_ref is not None:
+            data["expected"] = _expected_ref_to_mapping(self.expected_ref)
+        if metadata:
+            data["metadata"] = metadata
+        return data
+
     def __post_init__(self) -> None:
         object.__setattr__(self, "inputs", tuple(self.inputs))
         object.__setattr__(self, "outputs", tuple(self.outputs))
         object.__setattr__(self, "dependencies", tuple(self.dependencies))
         object.__setattr__(self, "complement_inputs", tuple(self.complement_inputs))
         object.__setattr__(self, "metadata", dict(self.metadata))
+        if self.expected_ref is not None and not isinstance(self.expected_ref, ExpectedTableReference):
+            object.__setattr__(
+                self,
+                "expected_ref",
+                ExpectedTableReference.from_mapping(self.expected_ref),
+            )
         if isinstance(self.expected, ExpectedTable):
             self.expected.validate(
                 input_width=len(self.inputs),
                 output_width=len(self.outputs),
             )
+
+
+def _reject_unknown(payload: Mapping[str, Any], allowed: frozenset[str], label: str) -> None:
+    unknown = sorted(key for key in payload if key not in allowed)
+    if unknown:
+        raise ValueError(f"unknown {label} fields: {', '.join(unknown)}")
+
+
+def _required_mapping(value: Any, label: str) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping):
+        raise TypeError(f"{label} must be an object")
+    return value
+
+
+def _optional_mapping(value: Any, label: str) -> Mapping[str, Any]:
+    if value is None:
+        return {}
+    return _required_mapping(value, label)
+
+
+def _required_string(value: Any, label: str) -> str:
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{label} must be a non-empty string")
+    return value
+
+
+def _string_tuple(
+    value: Any,
+    label: str,
+    *,
+    require_nonempty: bool = False,
+) -> tuple[str, ...]:
+    if value is None:
+        if require_nonempty:
+            raise ValueError(f"{label} must not be empty")
+        return ()
+    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
+        raise TypeError(f"{label} must be a list of strings")
+    result = tuple(_required_string(item, f"{label}[]") for item in value)
+    if require_nonempty and not result:
+        raise ValueError(f"{label} must not be empty")
+    return result
+
+
+def _rails_from_mapping(value: Any) -> tuple[str, str]:
+    payload = _required_mapping(value, "rails")
+    _reject_unknown(payload, frozenset({"vdd", "vss"}), "rails")
+    return (
+        _required_string(payload.get("vdd"), "rails.vdd"),
+        _required_string(payload.get("vss"), "rails.vss"),
+    )
+
+
+def _complement_inputs_from_mapping(
+    value: Any,
+    *,
+    inputs: tuple[str, ...],
+) -> tuple[str, ...]:
+    payload = _required_mapping(value, "complement_inputs")
+    if not payload:
+        return ()
+    unknown = sorted(key for key in payload if key not in inputs)
+    if unknown:
+        raise ValueError(f"unknown complement input names: {', '.join(unknown)}")
+    missing = [name for name in inputs if name not in payload]
+    if missing:
+        raise ValueError(f"missing complement input names: {', '.join(missing)}")
+    return tuple(_required_string(payload[name], f"complement_inputs.{name}") for name in inputs)
+
+
+def _complement_inputs_to_mapping(
+    inputs: tuple[str, ...],
+    complements: tuple[str, ...],
+) -> dict[str, str]:
+    if not complements:
+        return {}
+    if len(inputs) != len(complements):
+        raise ValueError("complement_inputs must be empty or match inputs length")
+    return dict(zip(inputs, complements, strict=True))
+
+
+def _expected_ref_to_mapping(value: ExpectedTableReference | Mapping[str, Any]) -> dict[str, object]:
+    if isinstance(value, ExpectedTableReference):
+        return value.to_mapping()
+    return ExpectedTableReference.from_mapping(value).to_mapping()

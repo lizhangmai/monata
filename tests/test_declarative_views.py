@@ -132,7 +132,7 @@ def test_create_view_data_format_rejects_python_metadata(tmp_path):
 
     with pytest.raises(ValueError, match="Python schematic metadata is not supported"):
         cell.create_view("schematic", format="monata-schematic-json", cls_name="Inv")
-    with pytest.raises(ValueError, match="use testbench_py"):
+    with pytest.raises(ValueError, match="executable Python metadata"):
         cell.create_view("testbench", format="monata-testbench-json", function_name="main")
 
     with open(cell.path / "cell.toml", "rb") as file:
@@ -159,12 +159,12 @@ def test_schematic_conversion_refuses_python_without_explicit_allow(tmp_path):
         format = LEGACY_SCHEMATIC_FORMAT
         trusted = True
 
-        def load_trusted(self):
+        def load(self):
             marker.write_text("executed")
             return SubCircuit("legacy", nodes=("a", "y"))
 
     with pytest.raises(TypeError, match="legacy Python schematic format is no longer supported"):
-        schematic_view_to_circuit(LegacyPythonView(), allow_trusted_python=False, reason="unit test")
+        schematic_view_to_circuit(LegacyPythonView(), reason="unit test")
     assert not marker.exists()
 
 
@@ -177,7 +177,7 @@ def test_schematic_conversion_rejects_unregistered_to_circuit_object():
             return SubCircuit("adhoc", nodes=("a", "b"))
 
     with pytest.raises(TypeError, match="unsupported schematic view format"):
-        schematic_view_to_circuit(AdHocView(), allow_trusted_python=False, reason="unit test")
+        schematic_view_to_circuit(AdHocView(), reason="unit test")
 
 
 def test_symbol_json_view_loads_normalized_payload(tmp_path):

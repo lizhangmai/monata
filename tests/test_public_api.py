@@ -503,7 +503,7 @@ def test_sim_capabilities_model_flow_profile_sanity():
     assert capabilities.ngspice_profile().backend_name == "ngspice-subprocess"
 
 
-def test_docs_call_out_trusted_python_view_loading():
+def test_docs_call_out_data_only_load_boundary_and_external_tools():
     project_root = Path(__file__).resolve().parents[1]
 
     readme = (project_root / "README.md").read_text()
@@ -512,14 +512,55 @@ def test_docs_call_out_trusted_python_view_loading():
     assert "parsed and validated without executing project code" in readme
     assert "default symbol generation" in readme
     assert "do not execute a neighboring `schematic.py`" in readme
-    assert "load_trusted()" in readme
-    assert "run_trusted()" in readme
-    assert "trusted = true" in readme
-    assert "Python remains useful\nas an authoring surface that writes data" in readme
-    assert "not\nsandboxed" in readme
-    assert "trusted libraries" in readme
+    assert "Cellview metadata that describes\nPython execution is rejected" in readme
+    assert "### External Tool Boundary" in readme
+    assert "user-installed external\ntools such as ngspice or OpenVAF" in readme
+    assert "`load()` and `read()`, which only parse\nstructured data" in readme
+    assert "load_trusted()" not in readme
+    assert "run_trusted()" not in readme
+    assert "trusted = true" not in readme
+    assert "escape hatch" not in readme
+    assert "Python testbenches" not in readme
     assert "https://github.com/lizhangmai/monata-docs" in readme
     assert "docs/reference/api-boundaries.md" in readme
+
+
+def test_core_source_and_public_docs_have_no_python_execution_residue():
+    project_root = Path(__file__).resolve().parents[1]
+    source_text = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((project_root / "src" / "monata").rglob("*.py"))
+    )
+    public_text = source_text + "\n" + (project_root / "README.md").read_text(encoding="utf-8")
+
+    for token in (
+        "load_python_attribute",
+        "load_python_entry",
+        "load_trusted",
+        "run_trusted",
+        "testbench_py",
+        "python-testbench",
+        "trusted = true",
+        "trusted escape hatches",
+        "Python testbenches",
+    ):
+        assert token not in public_text
+
+
+def test_simulation_recipe_parser_has_no_strong_runtime_field_residue():
+    project_root = Path(__file__).resolve().parents[1]
+    parser_text = (project_root / "src" / "monata" / "sim" / "digital_recipe.py").read_text(encoding="utf-8")
+
+    for token in (
+        "SimulationModelConfig",
+        "SimulatorProfile",
+        "model_config",
+        "openvaf_bin",
+        "source_paths",
+        "external_osdi_paths",
+        "cache_dir",
+    ):
+        assert token not in parser_text
 
 
 def test_import_parser_api_does_not_eagerly_load_sim_or_backends():

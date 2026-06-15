@@ -17,6 +17,21 @@ ViewConfigFactory = Callable[[str, ViewConfigOptions, "ViewSchema"], ViewConfig]
 ViewGenerator = Callable[..., Path]
 _REMOVED_SCHEMATIC_PY_VIEW = "schematic" + "_py"
 _REMOVED_PYTHON_SCHEMATIC_FORMAT = "python-" + "schematic"
+_REMOVED_EXEC_TEST_VIEW = "testbench" + "_py"
+_REMOVED_EXEC_TEST_FORMAT = "python-" + "testbench"
+_DIGITAL_TRUTH_TABLE_JSON_FORMAT = "monata-digital-truth-table-json"
+_SIMULATION_JSON_FORMAT = "monata-simulation-json"
+_DATA_VIEW_CONFIG_FIELDS = frozenset({
+    "entry",
+    "format",
+    "generated",
+    "schema_version",
+})
+_DATA_VIEW_PYTHON_FIELDS = frozenset({
+    "function",
+    "function_name",
+    "trusted",
+})
 
 
 def _view_type_key(view_type: object) -> str:
@@ -39,12 +54,12 @@ class ViewSchema:
     default_entry: str | None = None
     view_format: str | None = None
     generated: bool = False
-    trusted: bool = False
     schema_version: int | None = None
     config_factory: ViewConfigFactory | None = None
     generator: ViewGenerator | None = None
 
     def create_config(self, view_type: str, options: ViewConfigOptions) -> MutableViewConfig:
+        _reject_executable_view_metadata(view_type, options)
         if self.config_factory is not None:
             return dict(self.config_factory(view_type, options, self))
 
@@ -54,10 +69,6 @@ class ViewSchema:
             config["format"] = options.get("format", self.view_format)
         if self.generated:
             config["generated"] = bool(options.get("generated", True))
-        if self.trusted:
-            config["trusted"] = bool(options.get("trusted", True))
-        elif "trusted" in options:
-            config["trusted"] = bool(options["trusted"])
         if self.schema_version is not None:
             config["schema_version"] = options.get("schema_version", self.schema_version)
         return config
@@ -85,6 +96,9 @@ class ViewRegistry:
         generator: ViewGenerator | None = None,
     ) -> None:
         key = _view_type_key(view_type)
+        _reject_removed_testbench_view(key, view_format)
+        if trusted:
+            raise ValueError("trusted executable view registration is not supported in Monata core")
         if key in self._schemas and not replace:
             raise ValueError(f"view type already registered: {key}")
         fmt = _format_key(view_format) if view_format is not None else None
@@ -98,7 +112,6 @@ class ViewRegistry:
             default_entry=default_entry,
             view_format=fmt,
             generated=generated,
-            trusted=trusted,
             schema_version=schema_version,
             config_factory=config_factory,
             generator=generator,
@@ -124,6 +137,7 @@ class ViewRegistry:
 
     def create_config(self, view_type: str, options: ViewConfigOptions) -> MutableViewConfig:
         _reject_removed_schematic_view(view_type, options.get("format"))
+        _reject_removed_testbench_view(view_type, options.get("format"))
         schema = None
         requested_format = options.get("format")
         if requested_format is not None:
@@ -146,7 +160,8 @@ class ViewRegistry:
         if "format" in config:
             view_format = _format_key(config["format"])
             _reject_removed_schematic_view(view_type, view_format)
-            _validate_trusted_format(view_format, config)
+            _reject_removed_testbench_view(view_type, view_format)
+            _reject_executable_view_metadata(view_type, config)
             schema = self.get_schema_for_format(view_format)
             if schema is None:
                 raise ValueError(f"unknown view format: {view_format}")
@@ -242,15 +257,6 @@ def _register_defaults() -> None:
         config_factory=_testbench_config,
     )
     register_view_type(
-        "testbench_py",
-        _testbench_python_view,
-        replace=True,
-        default_entry="testbench.py",
-        view_format="python-testbench",
-        trusted=True,
-        config_factory=_testbench_py_config,
-    )
-    register_view_type(
         "netlist",
         _netlist_view,
         replace=True,
@@ -274,14 +280,18 @@ def _register_defaults() -> None:
         "simulation",
         _simulation_view,
         replace=True,
-        default_entry="simulation.py",
+        default_entry="simulation.monata.json",
+        view_format=_SIMULATION_JSON_FORMAT,
+        schema_version=1,
         config_factory=_simulation_config,
     )
     register_view_type(
         "digital_truth_table",
         _digital_truth_table_view,
         replace=True,
-        default_entry="digital_truth_table.py",
+        default_entry="digital_truth_table.monata.json",
+        view_format=_DIGITAL_TRUTH_TABLE_JSON_FORMAT,
+        schema_version=1,
         config_factory=_digital_truth_table_config,
     )
 
@@ -308,18 +318,6 @@ def _testbench_json_view(cell: Any, cfg: ViewConfig) -> Any:
     )
 
 
-def _testbench_python_view(cell: Any, cfg: ViewConfig) -> Any:
-    from monata.views.testbench import TestbenchView
-
-    trusted = _trusted_python_config(cfg, view_format="python-testbench")
-    return TestbenchView(
-        cell=cell,
-        entry=str(cfg["entry"]),
-        function_name=str(cfg["function"]),
-        trusted=trusted,
-    )
-
-
 def _netlist_view(cell: Any, cfg: ViewConfig) -> Any:
     from monata.views.netlist import NetlistView
 
@@ -338,26 +336,31 @@ def _symbol_json_view(cell: Any, cfg: ViewConfig) -> Any:
 
 
 def _simulation_view(cell: Any, cfg: ViewConfig) -> Any:
-    from monata.views.simulation import SimulationView
+    from monata.views.simulation import SimulationRecipeView
 
-    return SimulationView(
+    _validate_data_view_config(cfg, view_format=_SIMULATION_JSON_FORMAT, label="simulation")
+    return SimulationRecipeView(
         cell=cell,
         entry=str(cfg["entry"]),
-        function_name=str(cfg.get("function", "main")),
-        backend=str(cfg["backend"]) if cfg.get("backend") is not None else None,
-        max_workers=_optional_int(cfg.get("max_workers")),
+        generated=bool(cfg.get("generated", False)),
+        schema_version=_optional_int(cfg.get("schema_version", 1)),
     )
 
 
 def _digital_truth_table_view(cell: Any, cfg: ViewConfig) -> Any:
     from monata.views.digital_truth_table import DigitalTruthTableView
 
+    _validate_data_view_config(
+        cfg,
+        view_format=_DIGITAL_TRUTH_TABLE_JSON_FORMAT,
+        label="digital_truth_table",
+    )
     return DigitalTruthTableView(
         cell=cell,
         entry=str(cfg["entry"]),
-        function_name=str(cfg.get("function", "build_truth_table")),
-        mode=str(cfg.get("mode", "transient")),
-        simulation_view=str(cfg.get("simulation_view", "simulation")),
+        view_format=str(cfg.get("format", _DIGITAL_TRUTH_TABLE_JSON_FORMAT)),
+        schema_version=_optional_int(cfg.get("schema_version", 1)),
+        generated=bool(cfg.get("generated", False)),
         config=cfg,
     )
 
@@ -389,12 +392,26 @@ def _reject_removed_schematic_view(view_type: object, view_format: object | None
         raise ValueError(_unsupported_python_schematic_message())
 
 
+def _unsupported_python_testbench_message() -> str:
+    return (
+        "Python testbench cellviews are no longer supported in Monata core; "
+        "use declarative structured data and explicit simulation/executor flows"
+    )
+
+
+def _reject_removed_testbench_view(view_type: object, view_format: object | None = None) -> None:
+    if view_type == _REMOVED_EXEC_TEST_VIEW:
+        raise ValueError("removed Python testbench view type is no longer built in; " + _unsupported_python_testbench_message())
+    if view_format == _REMOVED_EXEC_TEST_FORMAT:
+        raise ValueError(_unsupported_python_testbench_message())
+
+
 def _testbench_config(view_type: str, options: ViewConfigOptions, schema: ViewSchema) -> MutableViewConfig:
     entry = str(options.get("entry", schema.default_entry or "testbench.monata.json"))
     if any(key in options for key in ("function_name", "function")):
         raise ValueError(
-            "monata-testbench-json views cannot include Python function metadata; "
-            "use testbench_py with trusted = true"
+            "monata-testbench-json views cannot include executable Python metadata; "
+            "use declarative structured data and explicit simulation/executor flows"
         )
     return {
         "entry": entry,
@@ -415,56 +432,65 @@ def _symbol_config(view_type: str, options: ViewConfigOptions, schema: ViewSchem
     }
 
 
-def _testbench_py_config(view_type: str, options: ViewConfigOptions, schema: ViewSchema) -> MutableViewConfig:
-    _require_trusted_option(options, view_format="python-testbench")
-    return {
-        "entry": options.get("entry", schema.default_entry or "testbench.py"),
-        "format": "python-testbench",
-        "trusted": True,
-        "function": options.get("function_name", "main"),
-    }
-
-
 def _reject_removed_view_metadata(view_type: str, config: ViewConfig) -> None:
     _reject_removed_schematic_view(view_type, config.get("format"))
+    _reject_removed_testbench_view(view_type, config.get("format"))
+    _reject_executable_view_metadata(view_type, config)
     if view_type == "schematic" and "class" in config:
         raise ValueError(
             "schematic Python class metadata is no longer supported; "
             "use monata-schematic-json structured schematic data"
         )
-    if view_type == "testbench" and "function" in config:
-        raise ValueError(
-            "testbench Python views require format = 'python-testbench' and trusted = true; "
-            "unformatted function metadata is not supported"
-        )
     if view_type == "symbol" and str(config.get("entry", "")).endswith(".toml"):
         raise ValueError("symbol.toml views are not supported; use symbol.monata.json")
 
 
-def _require_trusted_option(options: ViewConfigOptions, *, view_format: str) -> None:
-    if options.get("trusted") is not True:
-        raise ValueError(f"{view_format} views require trusted = true")
+def _reject_executable_view_metadata(view_type: object, config: Mapping[str, object]) -> None:
+    python_fields = sorted(key for key in config if key in _DATA_VIEW_PYTHON_FIELDS)
+    if python_fields:
+        raise ValueError(
+            f"{view_type} cannot include executable Python metadata: {', '.join(python_fields)}; "
+            "load() and read() parse structured data only"
+        )
 
 
-def _validate_trusted_format(view_format: str, config: ViewConfig) -> None:
-    if view_format == "python-testbench":
-        _trusted_python_config(config, view_format=view_format)
+def _validate_data_view_options(
+    options: ViewConfigOptions,
+    *,
+    view_format: str,
+    label: str,
+) -> None:
+    _validate_data_view_config(options, view_format=view_format, label=label)
 
 
-def _trusted_python_config(config: ViewConfig, *, view_format: str) -> bool:
-    if config.get("trusted") is not True:
-        raise ValueError(f"{view_format} views require trusted = true")
-    return True
+def _validate_data_view_config(
+    config: Mapping[str, object],
+    *,
+    view_format: str,
+    label: str,
+) -> None:
+    _reject_executable_view_metadata(label, config)
+    unknown = sorted(key for key in config if key not in _DATA_VIEW_CONFIG_FIELDS)
+    if unknown:
+        raise ValueError(f"{label} has unknown view config fields: {', '.join(unknown)}")
+    requested_format = config.get("format", view_format)
+    if requested_format != view_format:
+        raise ValueError(f"{label} requires format = {view_format!r}")
 
 
 def _simulation_config(view_type: str, options: ViewConfigOptions, schema: ViewSchema) -> MutableViewConfig:
+    _validate_data_view_options(
+        options,
+        view_format=_SIMULATION_JSON_FORMAT,
+        label="monata-simulation-json views",
+    )
     config: MutableViewConfig = {
-        "entry": options.get("entry", schema.default_entry or f"{view_type}.py"),
-        "function": options.get("function_name", "main"),
+        "entry": options.get("entry", schema.default_entry or "simulation.monata.json"),
+        "format": _SIMULATION_JSON_FORMAT,
+        "schema_version": options.get("schema_version", 1),
     }
-    for key in ("backend", "max_workers"):
-        if key in options:
-            config[key] = options[key]
+    if "generated" in options:
+        config["generated"] = bool(options["generated"])
     return config
 
 
@@ -481,12 +507,19 @@ def _digital_truth_table_config(
     options: ViewConfigOptions,
     schema: ViewSchema,
 ) -> MutableViewConfig:
-    return {
-        "entry": options.get("entry", schema.default_entry or f"{view_type}.py"),
-        "function": options.get("function_name", "build_truth_table"),
-        "mode": options.get("mode", "transient"),
-        "simulation_view": options.get("simulation_view", "simulation"),
+    _validate_data_view_options(
+        options,
+        view_format=_DIGITAL_TRUTH_TABLE_JSON_FORMAT,
+        label="monata-digital-truth-table-json views",
+    )
+    config: MutableViewConfig = {
+        "entry": options.get("entry", schema.default_entry or "digital_truth_table.monata.json"),
+        "format": _DIGITAL_TRUTH_TABLE_JSON_FORMAT,
+        "schema_version": options.get("schema_version", 1),
     }
+    if "generated" in options:
+        config["generated"] = bool(options["generated"])
+    return config
 
 
 def _generate_netlist(cell: Any, **kwargs: Any) -> Path:
