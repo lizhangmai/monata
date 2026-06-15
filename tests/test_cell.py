@@ -254,7 +254,7 @@ def test_cell_create_view_rejects_removed_implicit_python_metadata_without_writi
     cell_dir = _make_cell(tmp_path)
     cell = Cell(cell_dir, MagicMock())
 
-    with pytest.raises(ValueError, match="Python class metadata is no longer supported"):
+    with pytest.raises(ValueError, match="cannot include Python class metadata"):
         cell.create_view("schematic", entry="schematic.py", cls_name="Inv")
 
     with pytest.raises(ValueError, match="use testbench_py"):
