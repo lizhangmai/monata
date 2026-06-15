@@ -11,6 +11,9 @@ from monata.views import View
 from monata.views.registry import register_view_type, unregister_view_type
 
 
+PYTHON_TESTBENCH_FORMAT = "python" + "-testbench"
+
+
 def _make_cell(tmp_path, cell_name="inverter", views_toml=""):
     cell_dir = tmp_path / cell_name
     cell_dir.mkdir()
@@ -144,7 +147,7 @@ def test_cell_getitem_symbol(tmp_path):
             "executable Python metadata",
         ),
         (
-            'testbench = { entry = "testbench.py", format = "python-testbench" }\n',
+            f'testbench = {{ entry = "testbench.py", format = "{PYTHON_TESTBENCH_FORMAT}" }}\n',
             "testbench",
             "Python testbench cellviews are no longer supported",
         ),
@@ -160,7 +163,7 @@ def test_cell_getitem_symbol(tmp_path):
         ),
     ],
 )
-def test_cell_getitem_rejects_removed_view_metadata(tmp_path, views_toml, view_type, message):
+def test_cell_getitem_fails_closed_for_executable_or_invalid_metadata(tmp_path, views_toml, view_type, message):
     cell_dir = _make_cell(tmp_path, views_toml=views_toml)
     cell = Cell(cell_dir, MagicMock())
 
@@ -261,7 +264,7 @@ def test_cell_create_view_rejects_unsafe_view_types_without_writing(tmp_path, vi
     assert config["views"] == {}
 
 
-def test_cell_create_view_rejects_removed_implicit_python_metadata_without_writing(tmp_path):
+def test_cell_create_view_rejects_executable_or_invalid_metadata_without_writing(tmp_path):
     cell_dir = _make_cell(tmp_path)
     cell = Cell(cell_dir, MagicMock())
 

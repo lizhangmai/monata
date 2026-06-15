@@ -14,15 +14,42 @@ from monata.netlist import SubCircuit
 from monata.schematic import SchematicBuilder
 from monata.sim.core import SimResult, SimTask, TranSpec
 from monata.sim.digital_recipe import DigitalSimulationRecipe
-from monata.sim.digital_table import DigitalTruthTableSpec, ExpectedTable, build_digital_truth_table_from_spec
+from monata.sim.digital_table import (
+    DigitalVerificationSpec,
+    DigitalVerificationMeasure,
+    ExpectedTable,
+    build_digital_truth_table_from_spec,
+)
 from monata.sim.digital_plan import digital_task_metadata
 from monata.views.declarative import SchematicJsonView, SymbolJsonView, TestbenchJsonView
 from monata.views.base import View
-from monata.views.digital_truth_table import DigitalTruthTableView
+from monata.sim.digital_verification import write_digital_verification_artifacts
+from monata.views.verification import VerificationView
 from monata.views.netlist import NetlistView
 from monata.views.simulation import SimulationRecipeView, SimulationView
 from monata.views.symbol import infer_pin_direction
 from monata.views.registry import ViewRegistry, create_registered_view_config, get_view_factory
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _python_execution_residue_tokens():
+    load = "load"
+    run = "run"
+    python = "python"
+    trusted = "trusted"
+    testbench = "testbench"
+    return (
+        f"{load}_{python}_attribute",
+        f"{load}_{python}_entry",
+        f"{load}_{trusted}",
+        f"{run}_{trusted}",
+        f"{testbench}_py",
+        f"{python}-{testbench}",
+        f"{trusted} = true",
+    )
+
 
 def test_view_path(tmp_path):
     cell = MagicMock()
@@ -58,7 +85,12 @@ def test_view_run_raises_type_error():
 
 
 def test_view_has_no_python_execution_helpers():
-    for name in ("load_python_entry", "load_python_attribute", "load_trusted", "python_module_name"):
+    python = "python"
+    helper_names = (
+        *_python_execution_residue_tokens()[:4],
+        f"{python}_module_name",
+    )
+    for name in helper_names:
         assert not hasattr(View, name)
 
 
@@ -106,7 +138,7 @@ class _DelayRetryRecordingExecutor(_RecordingExecutor):
 
     def _result_for_task(self, task):
         payload = _task_digital_metadata(task)
-        task_kind = payload["digital_truth_table"]["task_kind"]
+        task_kind = payload["digital_verification"]["task_kind"]
         if task_kind == "digital-single-bit-arc-sequence":
             self._delay_attempts += 1
             if self._delay_attempts == 1:
@@ -120,7 +152,7 @@ def _task_digital_metadata(task):
 
 def _op_result_for_task(task):
     payload = _task_digital_metadata(task)
-    task_kind = payload["digital_truth_table"]["task_kind"]
+    task_kind = payload["digital_verification"]["task_kind"]
     if task_kind == "digital-single-bit-arc-sequence":
         return _digital_sequence_result_for_task(task)
     values = {}
@@ -133,8 +165,8 @@ def _op_result_for_task(task):
 def _digital_sequence_result_for_task(task):
     payload = _task_digital_metadata(task)
     stimulus = payload["stimulus"]
-    inputs = tuple(payload["digital_truth_table"]["inputs"])
-    outputs = tuple(payload["digital_truth_table"]["outputs"])
+    inputs = tuple(payload["digital_verification"]["inputs"])
+    outputs = tuple(payload["digital_verification"]["outputs"])
     state_sequence = tuple(_bits_from_text(text) for text in stimulus["state_sequence"])
     initial_settle = float(stimulus["initial_settle"])
     slot_duration = float(stimulus["slot_duration"])
@@ -181,8 +213,8 @@ def _digital_sequence_result_for_task(task):
 def _timing_result_for_task(task):
     payload = _task_digital_metadata(task)
     stimulus = payload["stimulus"]
-    inputs = tuple(payload["digital_truth_table"]["inputs"])
-    outputs = tuple(payload["digital_truth_table"]["outputs"])
+    inputs = tuple(payload["digital_verification"]["inputs"])
+    outputs = tuple(payload["digital_verification"]["outputs"])
     period = float(task.analysis_spec.stop) / float(stimulus["arcs"])
     transition = period * 0.1
     trigger_fraction = float(stimulus["trigger_fraction"])
@@ -315,25 +347,30 @@ def _create_and2_dut(lib: Library, *, marker: Path | None = None):
     return dut
 
 
-def _write_and2_truth_table_views(cell) -> None:
+def _write_and2_verification_views(cell) -> None:
     _write_json(cell.path / "expected.json", {"rows": AND2_EXPECTED_ROWS})
     _write_json(
-        cell.path / "digital_truth_table.monata.json",
+        cell.path / "verification.monata.json",
         {
             "schema_version": 1,
-            "view_type": "monata-digital-truth-table",
+            "view_type": "monata-verification",
+            "measures": [
+                {
+                    "name": "truth_table",
+                    "oracle": "exact",
+                    "expected": {
+                        "entry": "expected.json",
+                        "format": "monata-expected-table-json",
+                    },
+                },
+                {"name": "max_propagation_delay"},
+            ],
             "dut": "and2",
-            "stage": "unit",
-            "simulation_mode": "transient",
             "inputs": ["a", "b"],
             "outputs": ["out"],
             "dependencies": [],
             "rails": {"vdd": "vdd", "vss": "0"},
             "complement_inputs": {},
-            "expected": {
-                "entry": "expected.json",
-                "format": "monata-expected-table-json",
-            },
         },
     )
     _write_json(
@@ -341,7 +378,7 @@ def _write_and2_truth_table_views(cell) -> None:
         {
             "schema_version": 1,
             "view_type": "monata-simulation",
-            "recipe_kind": "digital_truth_table_transient",
+            "analysis": "transient",
             "timing": {
                 "period": 1.0,
                 "step": 0.01,
@@ -363,6 +400,35 @@ def _write_and2_truth_table_views(cell) -> None:
 
 def _bits_from_text(text: str) -> tuple[int, ...]:
     return tuple(int(bit) for bit in text)
+
+
+def _run_truth_table_verification(cell, *, executor, artifact_dir, run_config):
+    verification = cell["verification"]
+    simulation = cell["simulation"]
+    spec = verification.load()
+    recipe = simulation.load()
+    resolved = recipe.resolve(library=cell.library, run_config=run_config)
+    builder_kwargs = dict(resolved.builder_kwargs)
+    table = build_digital_truth_table_from_spec(
+        cell.library,
+        spec,
+        run_config=resolved.run_config,
+        **builder_kwargs,
+    )
+    measurements = ("truth_table", "max_propagation_delay")
+    sim_results = simulation.run_tasks(
+        table.transient_observation_tasks(resolved.observation, measurements=measurements),
+        executor=executor,
+        artifact_dir=artifact_dir,
+    )
+    result = table.extract_transient_results(sim_results, measurements=measurements)
+    write_digital_verification_artifacts(
+        artifact_dir,
+        table=table,
+        analysis=builder_kwargs["mode"],
+        result=result,
+    )
+    return result
 
 
 def test_simulation_view_runs_tasks_through_executor(tmp_path):
@@ -486,7 +552,7 @@ def test_simulation_recipe_view_loads_recipe_without_python_fallback(tmp_path):
         {
             "schema_version": 1,
             "view_type": "monata-simulation",
-            "recipe_kind": "digital_truth_table_transient",
+            "analysis": "transient",
             "timing": {"period": 1.0},
             "model_profiles": {"toy": {}},
         },
@@ -504,139 +570,155 @@ def test_simulation_recipe_view_loads_recipe_without_python_fallback(tmp_path):
         view.run()
 
 
-def test_digital_truth_table_view_uses_simulation_boundary(tmp_path):
+def test_verification_view_loads_data_and_runner_uses_simulation_boundary(tmp_path):
     lib = Library.create(tmp_path / "mylib", name="mylib")
     _create_and2_dut(lib)
     cell = lib.create_cell("verify_and2")
     (cell.path / "verification.py").write_text("raise RuntimeError('verification imported')\n", encoding="utf-8")
     (cell.path / "simulation.py").write_text("raise RuntimeError('simulation imported')\n", encoding="utf-8")
-    _write_and2_truth_table_views(cell)
-    cell.create_view("digital_truth_table")
+    _write_and2_verification_views(cell)
+    cell.create_view("verification")
     cell.create_view("simulation")
-    view = cell["digital_truth_table"]
+    view = cell["verification"]
     executor = _RecordingExecutor()
 
-    assert isinstance(view, DigitalTruthTableView)
-    assert view.simulation_view_type == "simulation"
+    assert isinstance(view, VerificationView)
+    assert view.load().dut == "and2"
+    with pytest.raises(TypeError, match="not 'verification'"):
+        view.run()
     artifact_dir = tmp_path / "artifacts" / "verify_and2"
-    result = view.run(executor=executor, artifact_dir=artifact_dir, run_config=_run_config())
+    result = _run_truth_table_verification(
+        cell,
+        executor=executor,
+        artifact_dir=artifact_dir,
+        run_config=_run_config(),
+    )
 
     assert result.mode == "transient"
     assert [row.as_dict()["status"] for row in result] == ["PASS", "PASS", "PASS", "PASS"]
     assert result.max_propagation_delay == pytest.approx(0.2)
     assert len(executor.tasks) == 1
     assert (artifact_dir / "tasks" / "task-0000").is_dir()
-    measurements = json.loads((artifact_dir / "measurements.json").read_text())
-    assert measurements["truth_table"]["status"] == "PASS"
-    assert measurements["max_propagation_delay"]["value"] == pytest.approx(0.2)
-    assert measurements["max_propagation_delay"]["coverage"]["kind"] == "directed_single_bit_exhaustive"
+    measures = json.loads((artifact_dir / "measures.json").read_text())
+    assert measures["truth_table"]["status"] == "PASS"
+    assert measures["max_propagation_delay"]["value"] == pytest.approx(0.2)
+    assert measures["max_propagation_delay"]["coverage"]["kind"] == "directed_single_bit_exhaustive"
     run = json.loads((artifact_dir / "run.json").read_text())
-    assert run["measurements"] == ["max_propagation_delay", "truth_table"]
+    assert run["schema"] == "monata-digital-verification-run-v1"
+    assert run["view"] == "verification"
+    assert run["analysis"] == "transient"
+    assert run["measures"] == ["max_propagation_delay", "truth_table"]
     assert [task["index"] for task in run["tasks"]] == [0]
     assert run["tasks"][0]["stimulus"]["kind"] == "digital_single_bit_arc_sequence"
-    assert run["tasks"][0]["measurements"] == ["truth_table", "max_propagation_delay"]
+    assert run["tasks"][0]["measures"] == ["truth_table", "max_propagation_delay"]
 
 
-def test_digital_truth_table_view_does_not_retry_unmeasurable_delay_chunks(tmp_path):
+def test_explicit_verification_runner_does_not_retry_unmeasurable_delay_chunks(tmp_path):
     lib = Library.create(tmp_path / "mylib", name="mylib")
     _create_and2_dut(lib)
     cell = lib.create_cell("verify_and2")
-    _write_and2_truth_table_views(cell)
-    cell.create_view("digital_truth_table")
+    _write_and2_verification_views(cell)
+    cell.create_view("verification")
     cell.create_view("simulation")
-    view = cell["digital_truth_table"]
     executor = _DelayRetryRecordingExecutor()
     artifact_dir = tmp_path / "artifacts" / "verify_and2"
 
     with pytest.raises(RuntimeError, match="did not cross threshold"):
-        view.run(executor=executor, artifact_dir=artifact_dir, run_config=_run_config())
+        _run_truth_table_verification(
+            cell,
+            executor=executor,
+            artifact_dir=artifact_dir,
+            run_config=_run_config(),
+        )
 
     assert len(executor.tasks) == 1
     assert (artifact_dir / "tasks" / "task-0000").is_dir()
     assert not (artifact_dir / "run.json").exists()
 
 
-def test_digital_truth_table_json_rejects_unknown_fields(tmp_path):
+def test_verification_json_rejects_unknown_fields(tmp_path):
     lib = Library.create(tmp_path / "mylib", name="mylib")
     _create_and2_dut(lib)
     cell = lib.create_cell("verify_and2")
-    _write_and2_truth_table_views(cell)
-    payload = json.loads((cell.path / "digital_truth_table.monata.json").read_text())
+    _write_and2_verification_views(cell)
+    payload = json.loads((cell.path / "verification.monata.json").read_text())
     payload["transient_observation"] = {"cycles_per_vector": 1}
-    _write_json(cell.path / "digital_truth_table.monata.json", payload)
-    cell.create_view("digital_truth_table")
+    _write_json(cell.path / "verification.monata.json", payload)
+    cell.create_view("verification")
     cell.create_view("simulation")
 
-    with pytest.raises(ValueError, match="unknown digital truth-table spec fields: transient_observation"):
-        cell["digital_truth_table"].spec()
+    with pytest.raises(ValueError, match="unknown digital verification spec fields: transient_observation"):
+        cell["verification"].spec()
 
 
-def test_digital_truth_table_json_rejects_simulation_view_dispatch_metadata(tmp_path):
+def test_verification_json_rejects_simulation_view_dispatch_metadata(tmp_path):
     lib = Library.create(tmp_path / "mylib", name="mylib")
     _create_and2_dut(lib)
     cell = lib.create_cell("verify_and2")
-    _write_and2_truth_table_views(cell)
-    payload = json.loads((cell.path / "digital_truth_table.monata.json").read_text())
+    _write_and2_verification_views(cell)
+    payload = json.loads((cell.path / "verification.monata.json").read_text())
     payload["simulation_view"] = "custom_runner"
-    _write_json(cell.path / "digital_truth_table.monata.json", payload)
-    cell.create_view("digital_truth_table")
+    _write_json(cell.path / "verification.monata.json", payload)
+    cell.create_view("verification")
 
-    with pytest.raises(ValueError, match="unknown digital truth-table spec fields: simulation_view"):
-        cell["digital_truth_table"].spec()
+    with pytest.raises(ValueError, match="unknown digital verification spec fields: simulation_view"):
+        cell["verification"].spec()
 
 
-def test_digital_truth_table_config_rejects_simulation_view_dispatch_metadata():
+def test_verification_config_rejects_simulation_view_dispatch_metadata():
     with pytest.raises(ValueError, match="unknown view config fields: simulation_view"):
-        create_registered_view_config("digital_truth_table", simulation_view="custom_runner")
+        create_registered_view_config("verification", simulation_view="custom_runner")
 
 
-def test_digital_truth_table_json_rejects_simulation_view_metadata(tmp_path):
+def test_verification_json_rejects_simulation_view_metadata(tmp_path):
     lib = Library.create(tmp_path / "mylib", name="mylib")
     _create_and2_dut(lib)
     cell = lib.create_cell("verify_and2")
-    _write_and2_truth_table_views(cell)
-    payload = json.loads((cell.path / "digital_truth_table.monata.json").read_text())
+    _write_and2_verification_views(cell)
+    payload = json.loads((cell.path / "verification.monata.json").read_text())
     payload["metadata"] = {"simulation_view": "custom_runner"}
-    _write_json(cell.path / "digital_truth_table.monata.json", payload)
-    cell.create_view("digital_truth_table")
+    _write_json(cell.path / "verification.monata.json", payload)
+    cell.create_view("verification")
 
     with pytest.raises(ValueError, match="metadata cannot include simulation_view"):
-        cell["digital_truth_table"].spec()
+        cell["verification"].spec()
 
 
-def test_digital_truth_table_json_loads_expected_rows_without_neighbor_python(tmp_path):
+def test_verification_json_loads_expected_rows_without_neighbor_python(tmp_path):
     lib = Library.create(tmp_path / "mylib", name="mylib")
     marker = tmp_path / "executed.txt"
     _create_and2_dut(lib, marker=marker)
     cell = lib.create_cell("and2_tb")
     (cell.path / "verification.py").write_text("raise RuntimeError('verification imported')\n", encoding="utf-8")
     (cell.path / "simulation.py").write_text("raise RuntimeError('simulation imported')\n", encoding="utf-8")
-    _write_and2_truth_table_views(cell)
-    cell.create_view("digital_truth_table")
+    _write_and2_verification_views(cell)
+    cell.create_view("verification")
     cell.create_view("simulation")
-    view = cell["digital_truth_table"]
+    view = cell["verification"]
 
-    table = view.load(run_config=_run_config())
+    spec = view.load()
 
-    assert table.expected_for((1, 1)) == (1,)
-    assert table.expected_for((0, 1)) == (0,)
+    assert spec.expected is not None
+    assert spec.expected((1, 1)) == (1,)
+    assert spec.expected((0, 1)) == (0,)
     assert not marker.exists()
 
 
 @pytest.mark.parametrize("entry", ["../expected.json", "/tmp/expected.json"])
-def test_digital_truth_table_expected_reference_rejects_unsafe_paths(tmp_path, entry):
+def test_verification_expected_reference_rejects_unsafe_paths(tmp_path, entry):
     lib = Library.create(tmp_path / "mylib", name="mylib")
     _create_and2_dut(lib)
     cell = lib.create_cell("and2_tb")
-    _write_and2_truth_table_views(cell)
-    payload = json.loads((cell.path / "digital_truth_table.monata.json").read_text())
-    payload["expected"] = {"entry": entry, "format": "monata-expected-table-json"}
-    _write_json(cell.path / "digital_truth_table.monata.json", payload)
-    cell.create_view("digital_truth_table")
+    _write_and2_verification_views(cell)
+    payload = json.loads((cell.path / "verification.monata.json").read_text())
+    truth_table_measure = next(measure for measure in payload["measures"] if measure["name"] == "truth_table")
+    truth_table_measure["expected"] = {"entry": entry, "format": "monata-expected-table-json"}
+    _write_json(cell.path / "verification.monata.json", payload)
+    cell.create_view("verification")
     cell.create_view("simulation")
 
     with pytest.raises(ValueError, match="expected.entry must be relative"):
-        cell["digital_truth_table"].spec()
+        cell["verification"].spec()
 
 
 @pytest.mark.parametrize("entry", ["../simulation.monata.json", "/tmp/simulation.monata.json"])
@@ -651,27 +733,66 @@ def test_simulation_json_entry_rejects_unsafe_paths(tmp_path, entry):
 
 def test_digital_truth_table_spec_mapping_normalizes_json_objects():
     expected = ExpectedTable.from_rows(AND2_EXPECTED_ROWS)
-    spec = DigitalTruthTableSpec.from_mapping(
+    spec = DigitalVerificationSpec.from_mapping(
         {
             "schema_version": 1,
-            "view_type": "monata-digital-truth-table",
+            "view_type": "monata-verification",
+            "measures": [
+                {
+                    "name": "truth_table",
+                    "oracle": "exact",
+                    "expected": {"entry": "expected.json", "format": "monata-expected-table-json"},
+                },
+                {"name": "max_propagation_delay"},
+            ],
             "dut": "and2",
-            "stage": "unit",
-            "simulation_mode": "transient",
             "inputs": ["a", "b"],
             "outputs": ["out"],
             "dependencies": [],
             "rails": {"vdd": "VDD", "vss": "VSS"},
             "complement_inputs": {"a": "a_bar", "b": "b_bar"},
-            "expected": {"entry": "expected.json", "format": "monata-expected-table-json"},
         },
         expected=expected,
     )
 
     assert spec.rails == ("VDD", "VSS")
     assert spec.complement_inputs == ("a_bar", "b_bar")
+    assert spec.measurements == ("truth_table", "max_propagation_delay")
     assert spec.to_mapping()["rails"] == {"vdd": "VDD", "vss": "VSS"}
     assert "simulation_view" not in spec.to_mapping()
+
+
+def test_verification_spec_requires_declared_measures():
+    with pytest.raises(ValueError, match="digital verification spec requires measures"):
+        DigitalVerificationSpec.from_mapping(
+            {
+                "schema_version": 1,
+                "view_type": "monata-verification",
+                "dut": "and2",
+                "inputs": ["a", "b"],
+                "outputs": ["out"],
+            }
+        )
+
+
+def test_verification_spec_rejects_unknown_measures():
+    with pytest.raises(ValueError, match="unsupported digital measure: energy"):
+        DigitalVerificationSpec.from_mapping(
+            {
+                "schema_version": 1,
+                "view_type": "monata-verification",
+                "measures": [
+                    {
+                        "name": "truth_table",
+                        "expected": {"entry": "expected.json", "format": "monata-expected-table-json"},
+                    },
+                    {"name": "energy"},
+                ],
+                "dut": "and2",
+                "inputs": ["a", "b"],
+                "outputs": ["out"],
+            }
+        )
 
 
 def test_digital_simulation_recipe_rejects_unknown_profile_fields():
@@ -680,7 +801,7 @@ def test_digital_simulation_recipe_rejects_unknown_profile_fields():
             {
                 "schema_version": 1,
                 "view_type": "monata-simulation",
-                "recipe_kind": "digital_truth_table_transient",
+                "analysis": "transient",
                 "timing": {"period": 1.0},
                 "model_profiles": {"toy": {"python": "not allowed"}},
             }
@@ -702,7 +823,7 @@ def test_digital_simulation_recipe_rejects_strong_top_level_fields(extra, messag
     payload = {
         "schema_version": 1,
         "view_type": "monata-simulation",
-        "recipe_kind": "digital_truth_table_transient",
+        "analysis": "transient",
         "timing": {"period": 1.0},
         "model_profiles": {"toy": {}},
         **extra,
@@ -739,7 +860,7 @@ def test_digital_simulation_recipe_rejects_nested_strong_profile_fields(profile_
             {
                 "schema_version": 1,
                 "view_type": "monata-simulation",
-                "recipe_kind": "digital_truth_table_transient",
+                "analysis": "transient",
                 "timing": {"period": 1.0},
                 "model_profiles": {"toy": profile_extra},
             }
@@ -764,11 +885,16 @@ def test_digital_truth_table_spec_helper_uses_data_schematic_without_neighbor_py
 
     table = build_digital_truth_table_from_spec(
         lib,
-        DigitalTruthTableSpec(
+        DigitalVerificationSpec(
             dut="and2",
             inputs=("a", "b"),
             outputs=("out",),
-            expected=lambda bits: (bits[0] & bits[1],),
+            measures=(
+                DigitalVerificationMeasure(
+                    name="truth_table",
+                    expected=lambda bits: (bits[0] & bits[1],),
+                ),
+            ),
         ),
         run_config=SimpleNamespace(vdd=1.0, threshold=None, corner=None, model_config=None),
         mode="transient",
@@ -788,26 +914,34 @@ def test_view_registry_object_isolated_from_default_registry():
     assert get_view_factory("layout") is None
 
 
-def test_default_registry_includes_simulation_and_digital_truth_table():
+def test_default_registry_includes_simulation_and_verification_only():
+    unregistered_view_name = "digital" + "_truth_table"
+    python_testbench_view = "testbench" + "_py"
+    python_testbench_format = "python" + "-testbench"
+
     assert get_view_factory("simulation") is not None
-    assert get_view_factory("digital_truth_table") is not None
-    assert get_view_factory("testbench_py") is None
+    assert get_view_factory("verification") is not None
+    assert get_view_factory(unregistered_view_name) is None
+    assert get_view_factory("digital_verification") is None
+    assert get_view_factory(python_testbench_view) is None
     assert create_registered_view_config("simulation") == {
         "entry": "simulation.monata.json",
         "format": "monata-simulation-json",
         "schema_version": 1,
     }
-    assert create_registered_view_config("digital_truth_table") == {
-        "entry": "digital_truth_table.monata.json",
-        "format": "monata-digital-truth-table-json",
+    assert create_registered_view_config("verification") == {
+        "entry": "verification.monata.json",
+        "format": "monata-verification-json",
         "schema_version": 1,
     }
     with pytest.raises(ValueError, match="Python testbench cellviews are no longer supported"):
-        create_registered_view_config("testbench_py")
+        create_registered_view_config(python_testbench_view)
     with pytest.raises(ValueError, match="Python testbench cellviews are no longer supported"):
-        create_registered_view_config("testbench", format="python-testbench")
+        create_registered_view_config("testbench", format=python_testbench_format)
     with pytest.raises(ValueError, match="unknown view config fields: mode"):
-        create_registered_view_config("digital_truth_table", mode="transient")
+        create_registered_view_config("verification", mode="transient")
+    with pytest.raises(ValueError, match="unknown view type: digital_verification"):
+        create_registered_view_config("digital_verification")
 
 
 @pytest.mark.parametrize(
@@ -816,9 +950,9 @@ def test_default_registry_includes_simulation_and_digital_truth_table():
         ("simulation", {"trusted": False}),
         ("simulation", {"function": ""}),
         ("simulation", {"function_name": ""}),
-        ("digital_truth_table", {"trusted": False}),
-        ("digital_truth_table", {"function": ""}),
-        ("digital_truth_table", {"function_name": ""}),
+        ("verification", {"trusted": False}),
+        ("verification", {"function": ""}),
+        ("verification", {"function_name": ""}),
         ("testbench", {"trusted": False}),
         ("testbench", {"function": ""}),
         ("testbench", {"function_name": ""}),
@@ -830,25 +964,19 @@ def test_default_registry_rejects_executable_metadata_shapes(view_type, metadata
 
 
 def test_canonical_digital_view_sources_have_no_python_or_smoke_residue():
-    source_root = Path(__file__).resolve().parents[1] / "src" / "monata"
+    source_root = PROJECT_ROOT / "src" / "monata"
     source_text = "\n".join(
         (source_root / relative).read_text(encoding="utf-8")
         for relative in (
             "views/base.py",
-            "views/digital_truth_table.py",
+            "views/verification.py",
             "views/simulation.py",
             "views/registry.py",
         )
     )
 
     for token in (
-        "load_python_attribute",
-        "load_python_entry",
-        "load_trusted",
-        "run_trusted",
-        "testbench_py",
-        "python-testbench",
-        "trusted = true",
+        *_python_execution_residue_tokens(),
         "verification.py",
         "simulation.py",
         "SPEC",

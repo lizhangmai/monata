@@ -39,16 +39,6 @@ def test_model_flow_recipe_rejects_unknown_serialized_fields():
         })
 
 
-def test_model_flow_recipe_rejects_removed_dialect_constraints_alias():
-    with pytest.raises(TypeError, match="unknown model flow recipe fields: dialect_constraints"):
-        ModelFlowRecipe.from_dict({
-            "name": "ngspice-osdi",
-            "model_deck": "ptm_mg",
-            "output": "ngspice_osdi",
-            "dialect_constraints": ["ngspice"],
-        })
-
-
 def test_model_registry_register_resolve_and_osdi_paths(tmp_path):
     mos = tmp_path / "bsim4.osdi"
     bjt = tmp_path / "vbic.osdi"

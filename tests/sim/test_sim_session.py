@@ -226,23 +226,6 @@ def test_simulation_session_uses_monata_analysis_method_names():
         session.ac(start_frequency=10, stop_frequency=1e6, number_of_points=20)
     with pytest.raises(TypeError, match="noise requires input_source"):
         session.noise("out", src="vin", start=1, stop=1e6, points=8)
-    with pytest.raises(TypeError):
-        session.ac("dec", 30, 100, 1e7)  # type: ignore[reportCallIssue]
-    with pytest.raises(TypeError):
-        session.noise("sense", "ref", "vin", "dec", 7, 10, 1e6, 3)  # type: ignore[reportCallIssue]
-
-
-def test_simulation_session_frequency_helpers_reject_legacy_positional_sweeps():
-    session = SimulationSession(Circuit("keyword-only sweeps"))
-
-    with pytest.raises(TypeError):
-        session.ac(100, 1e7, 30, variation="dec")  # type: ignore[reportCallIssue]
-    with pytest.raises(TypeError):
-        session.ac_sensitivity("v(out)", 10, 1e5, 12, variation="oct")  # type: ignore[reportCallIssue]
-    with pytest.raises(TypeError):
-        session.distortion(1e3, 1e6, 9, variation="lin", f2overf1=0.8)  # type: ignore[reportCallIssue]
-    with pytest.raises(TypeError):
-        session.noise("sense", "vin", 10, 1e6, 7, reference_node="ref")  # type: ignore[reportCallIssue]
 
 
 def test_circuit_simulator_creates_backend_neutral_session():

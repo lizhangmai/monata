@@ -15,19 +15,19 @@ def test_simulation_artifact_dir_uses_task_artifact_options(tmp_path):
 
 
 def test_simulation_artifact_dir_ignores_metadata_control_keys(tmp_path):
-    legacy_target = tmp_path / "legacy"
+    metadata_target = tmp_path / "metadata-target"
     task = SimTask(
         circuit=None,
         analysis_spec=TranSpec(stop=1e-6),
         metadata={
-            "artifact_dir": str(legacy_target),
-            "simulation_artifact_dir": str(legacy_target),
+            "artifact_dir": str(metadata_target),
+            "simulation_artifact_dir": str(metadata_target),
         },
     )
 
     assert simulation_artifact_dir(task) is None
     assert persist_simulation_artifacts(task, simulator="unit", text_files={"stdout": "ignored"}) == {}
-    assert not legacy_target.exists()
+    assert not metadata_target.exists()
 
 
 def test_persist_simulation_artifacts_uses_schema_file_names(tmp_path):

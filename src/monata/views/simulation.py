@@ -239,7 +239,7 @@ class SimulationRecipeView(SimulationView):
         if task is None and tasks is None:
             raise TypeError(
                 "monata-simulation-json views are recipes; run the owning "
-                "digital_truth_table view or provide explicit task/tasks"
+                "simulation tasks explicitly"
             )
         return super().run(
             task=task,

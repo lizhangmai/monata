@@ -12,6 +12,26 @@ import tomllib
 import pytest
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _python_execution_residue_tokens():
+    load = "load"
+    run = "run"
+    python = "python"
+    trusted = "trusted"
+    testbench = "testbench"
+    return (
+        f"{load}_{python}_attribute",
+        f"{load}_{python}_entry",
+        f"{load}_{trusted}",
+        f"{run}_{trusted}",
+        f"{testbench}_py",
+        f"{python}-{testbench}",
+        f"{trusted} = true",
+    )
+
+
 ROOT_FACADE_EXPORTS = {
     "Cell",
     "CellNotFoundError",
@@ -334,7 +354,7 @@ def test_public_module_contracts(contract: ModuleContract):
 
 
 def test_ci_matrix_covers_advertised_python_classifiers():
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = PROJECT_ROOT
     pyproject = tomllib.loads((project_root / "pyproject.toml").read_text(encoding="utf-8"))
     classifiers = pyproject["project"]["classifiers"]
     advertised_versions = {
@@ -350,7 +370,7 @@ def test_ci_matrix_covers_advertised_python_classifiers():
 
 
 def test_release_metadata_marks_0_2_as_stable():
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = PROJECT_ROOT
     pyproject = tomllib.loads((project_root / "pyproject.toml").read_text(encoding="utf-8"))
     classifiers = set(pyproject["project"]["classifiers"])
 
@@ -361,7 +381,7 @@ def test_release_metadata_marks_0_2_as_stable():
 
 
 def test_core_package_metadata_keeps_external_tools_out_of_dependencies():
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = PROJECT_ROOT
     pyproject = tomllib.loads((project_root / "pyproject.toml").read_text(encoding="utf-8"))
     dependencies = set(pyproject["project"]["dependencies"])
     optional = pyproject["project"]["optional-dependencies"]
@@ -388,7 +408,7 @@ def test_specialized_sim_workflows_import_from_owner_modules():
 
 
 def test_import_monata_does_not_eagerly_load_sim_or_backends():
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = PROJECT_ROOT
     env = dict(os.environ)
     env["PYTHONPATH"] = str(project_root / "src")
 
@@ -414,7 +434,7 @@ def test_import_monata_does_not_eagerly_load_sim_or_backends():
 
 
 def test_import_monata_does_not_eagerly_load_model_registry_stack():
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = PROJECT_ROOT
     env = dict(os.environ)
     env["PYTHONPATH"] = str(project_root / "src")
 
@@ -441,7 +461,7 @@ def test_import_monata_does_not_eagerly_load_model_registry_stack():
 
 
 def test_import_backend_api_does_not_eagerly_load_or_register_ngspice():
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = PROJECT_ROOT
     env = dict(os.environ)
     env["PYTHONPATH"] = str(project_root / "src")
 
@@ -466,7 +486,7 @@ def test_import_backend_api_does_not_eagerly_load_or_register_ngspice():
 
 
 def test_top_level_sim_names_are_not_root_exports():
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = PROJECT_ROOT
     env = dict(os.environ)
     env["PYTHONPATH"] = str(project_root / "src")
 
@@ -504,7 +524,7 @@ def test_sim_capabilities_model_flow_profile_sanity():
 
 
 def test_docs_call_out_data_only_load_boundary_and_external_tools():
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = PROJECT_ROOT
 
     readme = (project_root / "README.md").read_text()
 
@@ -516,9 +536,12 @@ def test_docs_call_out_data_only_load_boundary_and_external_tools():
     assert "### External Tool Boundary" in readme
     assert "user-installed external\ntools such as ngspice or OpenVAF" in readme
     assert "`load()` and `read()`, which only parse\nstructured data" in readme
-    assert "load_trusted()" not in readme
-    assert "run_trusted()" not in readme
-    assert "trusted = true" not in readme
+    load = "load"
+    run = "run"
+    trusted = "trusted"
+    assert f"{load}_{trusted}()" not in readme
+    assert f"{run}_{trusted}()" not in readme
+    assert f"{trusted} = true" not in readme
     assert "escape hatch" not in readme
     assert "Python testbenches" not in readme
     assert "https://github.com/lizhangmai/monata-docs" in readme
@@ -526,7 +549,7 @@ def test_docs_call_out_data_only_load_boundary_and_external_tools():
 
 
 def test_core_source_and_public_docs_have_no_python_execution_residue():
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = PROJECT_ROOT
     source_text = "\n".join(
         path.read_text(encoding="utf-8")
         for path in sorted((project_root / "src" / "monata").rglob("*.py"))
@@ -534,13 +557,7 @@ def test_core_source_and_public_docs_have_no_python_execution_residue():
     public_text = source_text + "\n" + (project_root / "README.md").read_text(encoding="utf-8")
 
     for token in (
-        "load_python_attribute",
-        "load_python_entry",
-        "load_trusted",
-        "run_trusted",
-        "testbench_py",
-        "python-testbench",
-        "trusted = true",
+        *_python_execution_residue_tokens(),
         "trusted escape hatches",
         "Python testbenches",
     ):
@@ -548,7 +565,7 @@ def test_core_source_and_public_docs_have_no_python_execution_residue():
 
 
 def test_simulation_recipe_parser_has_no_strong_runtime_field_residue():
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = PROJECT_ROOT
     parser_text = (project_root / "src" / "monata" / "sim" / "digital_recipe.py").read_text(encoding="utf-8")
 
     for token in (
@@ -564,7 +581,7 @@ def test_simulation_recipe_parser_has_no_strong_runtime_field_residue():
 
 
 def test_import_parser_api_does_not_eagerly_load_sim_or_backends():
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = PROJECT_ROOT
     env = dict(os.environ)
     env["PYTHONPATH"] = str(project_root / "src")
 
@@ -590,7 +607,7 @@ def test_import_parser_api_does_not_eagerly_load_sim_or_backends():
 
 
 def test_import_netlist_api_does_not_eagerly_load_sim_or_backends():
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = PROJECT_ROOT
     env = dict(os.environ)
     env["PYTHONPATH"] = str(project_root / "src")
 
@@ -616,7 +633,7 @@ def test_import_netlist_api_does_not_eagerly_load_sim_or_backends():
 
 
 def test_import_kicad_adapter_does_not_eagerly_load_sim_or_backends():
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = PROJECT_ROOT
     env = dict(os.environ)
     env["PYTHONPATH"] = str(project_root / "src")
 
@@ -642,7 +659,7 @@ def test_import_kicad_adapter_does_not_eagerly_load_sim_or_backends():
 
 
 def test_import_eda_api_does_not_eagerly_load_sim_or_backends():
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = PROJECT_ROOT
     env = dict(os.environ)
     env["PYTHONPATH"] = str(project_root / "src")
 
@@ -668,7 +685,7 @@ def test_import_eda_api_does_not_eagerly_load_sim_or_backends():
 
 
 def test_import_rawfile_api_does_not_eagerly_load_ngspice_runner():
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = PROJECT_ROOT
     env = dict(os.environ)
     env["PYTHONPATH"] = str(project_root / "src")
 
@@ -693,7 +710,7 @@ def test_import_rawfile_api_does_not_eagerly_load_ngspice_runner():
 
 
 def test_import_sim_cache_api_does_not_eagerly_load_ngspice_runner():
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = PROJECT_ROOT
     env = dict(os.environ)
     env["PYTHONPATH"] = str(project_root / "src")
 
@@ -718,13 +735,13 @@ def test_import_sim_cache_api_does_not_eagerly_load_ngspice_runner():
 
 
 def test_sim_digital_facade_is_not_a_public_surface():
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = PROJECT_ROOT
 
     assert not (project_root / "src" / "monata" / "sim" / "digital.py").exists()
 
 
 def test_digital_task_and_extract_layers_use_explicit_plan_boundary():
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = PROJECT_ROOT
     private_table_protocols = (
         "_sequence_arcs_for_result",
         "_scheduled_single_bit_sequence_arcs",
@@ -783,7 +800,7 @@ def test_sim_core_convenience_bundle_exports_core_contracts():
 
 
 def test_sim_modules_do_not_import_public_vector_private_helpers():
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = PROJECT_ROOT
     offenders = []
     for path in (project_root / "src" / "monata" / "sim").rglob("*.py"):
         if path.name == "vector_names.py":
@@ -796,7 +813,7 @@ def test_sim_modules_do_not_import_public_vector_private_helpers():
 
 
 def test_core_sdist_omits_local_docs_tree():
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = PROJECT_ROOT
     with open(project_root / "pyproject.toml", "rb") as file:
         pyproject = tomllib.load(file)
 

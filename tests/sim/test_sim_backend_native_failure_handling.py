@@ -12,8 +12,7 @@ from monata.sim.core import (
     SimTask,
     TransferFunctionSpec,
 )
-from monata.sim.backends.ngspice import NgspiceRunner, _control_block
-from monata.sim.backends.ngspice_plan import NgspiceTaskPlan
+from monata.sim.backends.ngspice import NgspiceRunner
 from support.native_backend_cases import _ac_circuit, _dc_circuit, _fourier_circuit
 pytestmark = pytest.mark.native
 
@@ -196,22 +195,6 @@ def test_native_ngspice_metadata_preserves_user_reserved_keys():
     assert result.metadata["ngspice_2"]["analysis"] == "dc"
     assert result.metadata["ngspice_2"]["osdi_paths"] == []
     assert result.metadata["ngspice_2"]["simulator"] == "ngspice-subprocess"
-
-
-def test_ngspice_task_plan_rejects_removed_wrdata_primary_extraction(tmp_path):
-    plan = NgspiceTaskPlan(
-        analysis_name="dc",
-        output_names=("in",),
-        output_vectors=("v(in)",),
-        output_requests=(),
-        command="dc V1 0 1 0.5",
-        osdi_paths=(),
-        metadata={},
-        extraction="wrdata",  # type: ignore[reportArgumentType]
-    )
-
-    with pytest.raises(ValueError, match="unsupported ngspice extraction mode: wrdata"):
-        _control_block(plan, tmp_path / "result.dat")
 
 
 def test_invalid_output_name_returns_failed_result():

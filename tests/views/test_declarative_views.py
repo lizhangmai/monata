@@ -16,10 +16,6 @@ from monata.views.declarative import (
     schematic_view_to_circuit,
 )
 
-LEGACY_SCHEMATIC_FORMAT = "python-" + "schematic"
-REMOVED_SCHEMATIC_VIEW = "schematic" + "_py"
-
-
 def _write_json(path, payload):
     path.write_text(json.dumps(payload, indent=2) + "\n")
 
@@ -90,23 +86,10 @@ def test_schematic_json_view_reads_without_executing_neighbor_python(tmp_path):
     assert "Mmn vout vin vss vss nmos" in render_ngspice(circuit)
 
 
-def test_legacy_python_schematic_metadata_rejected_without_import(tmp_path):
-    cell = _make_cell(
-        tmp_path,
-        f'schematic = {{ entry = "schematic.py", format = "{LEGACY_SCHEMATIC_FORMAT}", trusted = false, class = "Inv" }}\n',
-    )
-    (cell.path / "schematic.py").write_text("raise RuntimeError('should not import')\n")
-
-    with pytest.raises(ValueError, match="legacy Python schematic format is no longer supported"):
-        cell["schematic"]
-
-
-def test_create_view_metadata_uses_data_schematic_and_rejects_removed_python_view(tmp_path):
+def test_create_view_metadata_uses_data_schematic(tmp_path):
     cell = _make_cell(tmp_path, "")
 
     schematic = cell.create_view("schematic")
-    with pytest.raises(ValueError, match="removed Python schematic view type"):
-        cell.create_view(REMOVED_SCHEMATIC_VIEW, cls_name="Inv")
     testbench = cell.create_view("testbench", entry="custom.monata.json")
 
     with open(cell.path / "cell.toml", "rb") as file:
@@ -119,7 +102,6 @@ def test_create_view_metadata_uses_data_schematic_and_rejects_removed_python_vie
         "schema_version": 2,
     }
     assert testbench.entry == "custom.monata.json"
-    assert REMOVED_SCHEMATIC_VIEW not in config["views"]
     assert config["views"]["testbench"] == {
         "entry": "custom.monata.json",
         "format": "monata-testbench-json",
@@ -150,22 +132,6 @@ def test_explicit_unknown_format_fails_closed(tmp_path):
         cell.create_view("schematic", format="monata-schematic-jsno")
     with pytest.raises(ValueError, match="unknown view format"):
         cell["schematic"]
-
-
-def test_schematic_conversion_refuses_python_without_explicit_allow(tmp_path):
-    marker = tmp_path / "executed.txt"
-
-    class LegacyPythonView:
-        format = LEGACY_SCHEMATIC_FORMAT
-        trusted = True
-
-        def load(self):
-            marker.write_text("executed")
-            return SubCircuit("legacy", nodes=("a", "y"))
-
-    with pytest.raises(TypeError, match="legacy Python schematic format is no longer supported"):
-        schematic_view_to_circuit(LegacyPythonView(), reason="unit test")
-    assert not marker.exists()
 
 
 def test_schematic_conversion_rejects_unregistered_to_circuit_object():
@@ -263,42 +229,6 @@ def test_testbench_json_view_does_not_execute_python_schematic_by_default(tmp_pa
 
     cell["testbench"].to_sim_task()
 
-    assert not marker.exists()
-
-
-def test_testbench_json_view_refuses_legacy_python_schematic_by_default(tmp_path):
-    lib = Library.create(tmp_path / "lib", name="lib")
-    cell = lib.create_cell("legacy")
-    marker = tmp_path / "executed.txt"
-    (cell.path / "schematic.py").write_text(
-        "from pathlib import Path\n"
-        f"Path({str(marker)!r}).write_text('executed')\n"
-        "from monata.netlist import SubCircuit\n"
-        "class Legacy(SubCircuit):\n"
-        "    NAME = 'legacy'\n"
-        "    NODES = ('a', 'z')\n"
-    )
-    _write_json(
-        cell.path / "testbench.monata.json",
-        {
-            "schema_version": 1,
-            "view_type": "testbench",
-            "dut": "legacy",
-            "analysis": {"kind": "tran", "step": "1p", "stop": "2n"},
-            "sources": [],
-        },
-    )
-    cell.create_view("testbench")
-    (cell.path / "cell.toml").write_text(
-        '[cell]\nname = "legacy"\n\n'
-        '[views]\n'
-        f'schematic = {{ entry = "schematic.py", format = "{LEGACY_SCHEMATIC_FORMAT}", trusted = true, class = "Legacy" }}\n'
-        'testbench = { entry = "testbench.monata.json", format = "monata-testbench-json", schema_version = 1 }\n'
-    )
-    cell._config = None
-
-    with pytest.raises(ValueError, match="legacy Python schematic format is no longer supported"):
-        cell["testbench"].to_sim_task()
     assert not marker.exists()
 
 

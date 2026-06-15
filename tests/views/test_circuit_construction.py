@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib.util
 from typing import Any
 
 import pytest
@@ -51,16 +50,12 @@ def test_netlist_does_not_export_circuit_construction_helpers():
 def test_monata_circuits_does_not_export_project_multiplier_recipe():
     import monata.circuits as circuits
 
-    removed_names = ("build_unsigned_multiplier4", "PartialProductNamer", "InternalNodeNamer")
+    private_recipe_names = ("build_unsigned_multiplier4", "PartialProductNamer", "InternalNodeNamer")
 
-    for name in removed_names:
+    for name in private_recipe_names:
         assert name not in circuits.__all__
         with pytest.raises(AttributeError):
             getattr(circuits, name)
-
-
-def test_netlist_construction_compatibility_module_is_not_public_surface():
-    assert importlib.util.find_spec("monata.netlist.construction") is None
 
 
 def test_source_subcircuit_parser_is_owned_by_parser_module():

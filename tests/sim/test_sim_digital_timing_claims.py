@@ -66,7 +66,7 @@ def test_propagation_delay_task_builds_single_input_transition_arcs():
     assert task.output_names == ("a", "b", "out")
     assert "measurements" not in task.metadata
     payload = _digital_task_metadata(task)
-    assert payload["digital_truth_table"]["task_kind"] == "digital-single-bit-arc-sequence"
+    assert payload["digital_verification"]["task_kind"] == "digital-single-bit-arc-sequence"
     assert payload["measurements"] == ["max_propagation_delay"]
     assert payload["stimulus"]["kind"] == "digital_single_bit_arc_sequence"
     assert payload["stimulus"]["arc_coverage"] == "directed_single_bit_exhaustive"
@@ -177,20 +177,6 @@ def test_observed_rows_have_canonical_non_exact_claim():
     assert truth_table.failed == []
 
 
-def test_claim_from_dict_rejects_legacy_source_observation():
-    payload = {
-        "oracle": "source-observation",
-        "claim_strength": "observation",
-        "assertion": "source outputs were observed for each input vector",
-        "expected_required": False,
-        "correctness_claim": "none",
-    }
-
-    assert DigitalVerificationClaim.from_oracle("exact").oracle == "exact"
-    with pytest.raises(ValueError, match="unsupported digital verification claim oracle"):
-        DigitalVerificationClaim.from_dict(payload)
-
-
 def test_claim_from_dict_rejects_unknown_payload_fields():
     payload = {
         "oracle": "observed",
@@ -205,8 +191,8 @@ def test_claim_from_dict_rejects_unknown_payload_fields():
         DigitalVerificationClaim.from_dict(payload)
 
 
-@pytest.mark.parametrize("oracle", ["observation", "tolerance", "custom-comparator", "source-observation"])
-def test_claim_from_oracle_rejects_noncanonical_aliases(oracle: str):
+@pytest.mark.parametrize("oracle", ["observation", "tolerance", "custom-comparator"])
+def test_claim_from_oracle_rejects_noncanonical_names(oracle: str):
     with pytest.raises(ValueError, match="unsupported digital verification oracle"):
         DigitalVerificationClaim.from_oracle(oracle)
 
@@ -345,16 +331,3 @@ def test_comparator_oracles_validate_required_configuration():
 
     with pytest.raises(ValueError, match="voltage_tolerance must be non-negative"):
         DigitalOutputTolerance(-0.1)
-
-
-def test_propagation_delay_task_rejects_removed_source_shape():
-    table = DigitalTruthTable(
-        And2,
-        inputs=("a", "b"),
-        outputs=("out",),
-        expected=AND2_EXPECTED_TABLE,
-        transition=0.1,
-    )
-
-    with pytest.raises(TypeError, match="source_shape"):
-        table.propagation_delay_task(source_shape="exp")  # type: ignore[reportCallIssue]

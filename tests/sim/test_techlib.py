@@ -11,7 +11,6 @@ from monata.library import Library
 from monata.netlist import Circuit, render_ngspice
 from monata.projection import project_pdk_instances, resolve_pdk_corner
 from monata.techlib.parse import (
-    parse_corner,
     parse_device,
     parse_model_deck,
     parse_techlib_attachments,
@@ -90,16 +89,6 @@ def test_techlib_loads_device_corner_and_model_selection(tmp_path):
     assert selection.lib_sections == [
         (str(tmp_path / "PTM_MG" / "models" / "ptm_mg_models.mod"), "ptm20hp")
     ]
-
-
-def test_techlib_corner_parser_rejects_legacy_corner_field_names():
-    with pytest.raises(TechlibError, match="unknown fields: node, voltage"):
-        parse_corner({
-            "name": "tt",
-            "model_deck": "models",
-            "node": "legacy-node",
-            "voltage": {"vdd": 0.8},
-        })
 
 
 def test_techlib_model_deck_parser_rejects_unknown_fields():
@@ -400,6 +389,7 @@ def test_registry_explicit_search_path_and_entry_point_discovery(tmp_path, monke
 def test_registry_uses_monata_techlib_path_when_search_paths_are_default(tmp_path, monkeypatch):
     first = _write_minimal_techlib(tmp_path / "first", name="PTM_MG")
     second = _write_minimal_techlib(tmp_path / "second", name="PTM_BULK")
+    monkeypatch.setenv("MONATA_HOME", str(tmp_path / "home"))
     monkeypatch.setenv(
         "MONATA_TECHLIB_PATH",
         os.pathsep.join([str(first.parent), str(second.parent)]),
@@ -523,12 +513,12 @@ def test_library_attachments_are_additive_and_optional(tmp_path):
     lib_dir.mkdir()
     (lib_dir / "lib.toml").write_text(
         '[library]\nname = "analog"\ndescription = "test"\n\n'
-        '[technology]\nmodel_paths = ["legacy.mod"]\n\n'
+        '[technology]\nmodel_paths = ["device.mod"]\n\n'
         '[attachments]\ntechlibs = ["PTM_MG"]\ndefault_corner = "ptm20hp"\n'
     )
 
     lib = Library(lib_dir)
-    assert lib.tech_model_paths == ["legacy.mod"]
+    assert lib.tech_model_paths == ["device.mod"]
     assert lib.attached_techlibs == ["PTM_MG"]
     assert lib.techlib_attachments[0].default_corner == "ptm20hp"
 

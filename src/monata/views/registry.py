@@ -19,7 +19,7 @@ _REMOVED_SCHEMATIC_PY_VIEW = "schematic" + "_py"
 _REMOVED_PYTHON_SCHEMATIC_FORMAT = "python-" + "schematic"
 _REMOVED_EXEC_TEST_VIEW = "testbench" + "_py"
 _REMOVED_EXEC_TEST_FORMAT = "python-" + "testbench"
-_DIGITAL_TRUTH_TABLE_JSON_FORMAT = "monata-digital-truth-table-json"
+_VERIFICATION_JSON_FORMAT = "monata-verification-json"
 _SIMULATION_JSON_FORMAT = "monata-simulation-json"
 _DATA_VIEW_CONFIG_FIELDS = frozenset({
     "entry",
@@ -286,13 +286,13 @@ def _register_defaults() -> None:
         config_factory=_simulation_config,
     )
     register_view_type(
-        "digital_truth_table",
-        _digital_truth_table_view,
+        "verification",
+        _verification_view,
         replace=True,
-        default_entry="digital_truth_table.monata.json",
-        view_format=_DIGITAL_TRUTH_TABLE_JSON_FORMAT,
+        default_entry="verification.monata.json",
+        view_format=_VERIFICATION_JSON_FORMAT,
         schema_version=1,
-        config_factory=_digital_truth_table_config,
+        config_factory=_verification_config,
     )
 
 
@@ -347,21 +347,20 @@ def _simulation_view(cell: Any, cfg: ViewConfig) -> Any:
     )
 
 
-def _digital_truth_table_view(cell: Any, cfg: ViewConfig) -> Any:
-    from monata.views.digital_truth_table import DigitalTruthTableView
+def _verification_view(cell: Any, cfg: ViewConfig) -> Any:
+    from monata.views.verification import VerificationView
 
     _validate_data_view_config(
         cfg,
-        view_format=_DIGITAL_TRUTH_TABLE_JSON_FORMAT,
-        label="digital_truth_table",
+        view_format=_VERIFICATION_JSON_FORMAT,
+        label="verification",
     )
-    return DigitalTruthTableView(
+    return VerificationView(
         cell=cell,
         entry=str(cfg["entry"]),
-        view_format=str(cfg.get("format", _DIGITAL_TRUTH_TABLE_JSON_FORMAT)),
+        view_format=str(cfg.get("format", _VERIFICATION_JSON_FORMAT)),
         schema_version=_optional_int(cfg.get("schema_version", 1)),
         generated=bool(cfg.get("generated", False)),
-        config=cfg,
     )
 
 
@@ -502,19 +501,19 @@ def _optional_int(value: object) -> int | None:
     raise TypeError(f"expected int-compatible value, got {type(value).__name__}")
 
 
-def _digital_truth_table_config(
+def _verification_config(
     view_type: str,
     options: ViewConfigOptions,
     schema: ViewSchema,
 ) -> MutableViewConfig:
     _validate_data_view_options(
         options,
-        view_format=_DIGITAL_TRUTH_TABLE_JSON_FORMAT,
-        label="monata-digital-truth-table-json views",
+        view_format=_VERIFICATION_JSON_FORMAT,
+        label="monata-verification-json views",
     )
     config: MutableViewConfig = {
-        "entry": options.get("entry", schema.default_entry or "digital_truth_table.monata.json"),
-        "format": _DIGITAL_TRUTH_TABLE_JSON_FORMAT,
+        "entry": options.get("entry", schema.default_entry or "verification.monata.json"),
+        "format": _VERIFICATION_JSON_FORMAT,
         "schema_version": options.get("schema_version", 1),
     }
     if "generated" in options:

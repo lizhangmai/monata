@@ -147,7 +147,7 @@ def test_transient_tasks_build_digital_sequence():
     assert "measurements" not in tasks[-1].metadata
     payload = _digital_task_metadata(tasks[-1])
     assert payload["schema"] == "monata.sim.digital-task.v1"
-    assert payload["digital_truth_table"]["task_kind"] == "digital-single-bit-arc-sequence"
+    assert payload["digital_verification"]["task_kind"] == "digital-single-bit-arc-sequence"
     assert payload["measurements"] == ["truth_table"]
     assert payload["stimulus"]["kind"] == "digital_single_bit_arc_sequence"
     assert payload["stimulus"]["arc_coverage"] == "directed_single_bit_exhaustive"

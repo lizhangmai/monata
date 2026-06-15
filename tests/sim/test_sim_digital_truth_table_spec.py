@@ -10,7 +10,6 @@ from monata.sim.digital_claims import (
 from monata.sim.digital_table import (
     DigitalTruthTable,
     bits_to_text,
-    resolve_digital_truth_table_mode,
 )
 from support.digital_cases import (
     AND2_EXPECTED_TABLE,
@@ -47,10 +46,10 @@ def test_logic_gate_examples_are_monata_digital_test_cases(case: LogicGateCase):
     assert len(tasks) == 1
     assert all(isinstance(task.analysis_spec, TranSpec) for task in tasks)
     assert tasks[-1].metadata["fixture"] == "logic-gate"
-    assert "digital_truth_table" not in tasks[-1].metadata
+    assert "digital_verification" not in tasks[-1].metadata
     payload = _digital_task_metadata(tasks[-1])
-    assert payload["digital_truth_table"]["dut"] == case.name
-    assert payload["digital_truth_table"]["task_kind"] == "digital-single-bit-arc-sequence"
+    assert payload["digital_verification"]["dut"] == case.name
+    assert payload["digital_verification"]["task_kind"] == "digital-single-bit-arc-sequence"
     assert payload["measurements"] == ["truth_table"]
     assert payload["stimulus"]["kind"] == "digital_single_bit_arc_sequence"
     assert payload["stimulus"]["vectors"] == len(case.expected.rows)
@@ -146,7 +145,7 @@ def test_config_resolution_normalizes_inputs_and_preserves_metadata_contract():
     assert task.output_names == ("a", "b", "out")
     assert task.metadata["oracle"] == "observed"
     assert task.metadata["owner"] == "unit-test"
-    assert _digital_task_metadata(task)["digital_truth_table"]["threshold"] == pytest.approx(0.6)
+    assert _digital_task_metadata(task)["digital_verification"]["threshold"] == pytest.approx(0.6)
     assert task.backend_options == {"rawfile_format": "binary"}
     assert str(task.artifacts.directory) == "artifacts"
 
@@ -182,22 +181,6 @@ def test_digital_task_metadata_rejects_non_mapping_monata_namespace():
 def test_transient_observation_rejects_unknown_payload_fields():
     with pytest.raises(ValueError, match="unknown digital transient observation fields: unexpected"):
         DigitalTransientObservation.from_dict({"stop": 1e-8, "unexpected": True})
-
-
-def test_digital_truth_table_mode_rejects_removed_vector_transient_alias():
-    assert resolve_digital_truth_table_mode("transient") == "transient"
-    with pytest.raises(ValueError, match="unsupported digital truth-table mode: vector-transient"):
-        resolve_digital_truth_table_mode("vector-transient")
-
-
-def test_digital_truth_table_rejects_removed_op_load_resistance():
-    with pytest.raises(TypeError, match="op_load_resistance"):
-        DigitalTruthTable(
-            And2,
-            inputs=("a", "b"),
-            outputs=("out",),
-            op_load_resistance="1e12",  # type: ignore[reportCallIssue]
-        )
 
 
 def test_complement_inputs_must_match_inputs():

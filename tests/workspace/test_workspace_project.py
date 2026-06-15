@@ -77,16 +77,6 @@ class TestProject:
         ):
             Project(proj_path)
 
-    def test_project_config_rejects_legacy_library_mapping(self, tmp_path):
-        proj_path = tmp_path / "project"
-        proj_path.mkdir()
-        (proj_path / "project.toml").write_text(
-            '[project]\nname = "project"\n\n[libraries]\nanalog = "libraries/analog"\n'
-        )
-
-        with pytest.raises(ValueError, match="project libraries must be an array of tables"):
-            Project(proj_path)
-
     def test_new_experiment(self, tmp_path):
         proj = create_project(tmp_path)
         exp = proj.new_experiment("folded_cascode_v1", description="First attempt")

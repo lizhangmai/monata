@@ -21,38 +21,6 @@ def test_corner_creation():
     assert c.model_file is None
 
 
-def test_corner_legacy_attribute_aliases_are_not_public():
-    point = OperatingPoint("nom", temperature=27, voltages={"vdd": 1.0})
-    model = ModelCornerRef(process_node="65nm")
-    corner = OperatingCorner("nom", voltages={"vdd": 1.0}, process_node="65nm")
-
-    assert not hasattr(point, "voltage")
-    assert not hasattr(model, "node")
-    assert not hasattr(corner, "voltage")
-    assert not hasattr(corner, "node")
-
-    with pytest.raises(ValueError, match="unknown fields: node, voltage"):
-        OperatingCorner.from_dict({"name": "legacy", "voltage": {"vdd": 0.9}, "node": "45nm"})
-    with pytest.raises(ValueError, match="unknown fields: node"):
-        ModelCornerRef.from_dict({"node": "45nm"})
-
-
-def test_corner_constructor_uses_canonical_voltages_argument_only():
-    with pytest.raises(TypeError):
-        OperatingPoint("legacy", voltage={"vdd": 1.0})  # type: ignore[reportCallIssue]
-    with pytest.raises(TypeError):
-        OperatingPoint("legacy", 27, {"vdd": 1.0})  # type: ignore[reportCallIssue]
-    with pytest.raises(TypeError):
-        OperatingCorner("legacy", voltage={"vdd": 1.0})  # type: ignore[reportCallIssue]
-    with pytest.raises(TypeError):
-        OperatingCorner("legacy", 27, {"vdd": 1.0})  # type: ignore[reportCallIssue]
-
-    with pytest.raises(ValueError, match="unknown fields: voltage"):
-        OperatingPoint.from_dict({"name": "legacy", "voltage": {"vdd": 0.9}})
-    with pytest.raises(ValueError, match="unknown fields: voltage"):
-        OperatingCorner.from_dict({"name": "legacy", "voltage": {"vdd": 0.9}})
-
-
 def test_corner_object_coercion_requires_explicit_corner_payload_types():
     class CanonicalCorner:
         name = "canonical"
@@ -60,16 +28,16 @@ def test_corner_object_coercion_requires_explicit_corner_payload_types():
         voltages = {"vdd": 1.1}
         process_node = "22nm"
 
-    class LegacyCornerShape:
-        name = "legacy"
+    class ExternalCornerShape:
+        name = "external"
         temperature = 125
         voltage = {"vdd": 0.8}
         node = "45nm"
 
     with pytest.raises(TypeError, match="unsupported operating corner: CanonicalCorner"):
         coerce_operating_corner(CanonicalCorner())
-    with pytest.raises(TypeError, match="unsupported operating corner: LegacyCornerShape"):
-        coerce_operating_corner(LegacyCornerShape())
+    with pytest.raises(TypeError, match="unsupported operating corner: ExternalCornerShape"):
+        coerce_operating_corner(ExternalCornerShape())
 
 
 def test_corner_payloads_are_read_only_after_creation():

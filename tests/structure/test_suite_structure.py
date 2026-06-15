@@ -5,7 +5,7 @@ import importlib
 from pathlib import Path
 import tomllib
 
-TEST_ROOT = Path(__file__).resolve().parent
+TEST_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = TEST_ROOT.parent
 
 DELETED_LARGE_SUITES = {
@@ -17,39 +17,38 @@ DELETED_LARGE_SUITES = {
 }
 
 SLOW_SPLIT_SUITES = {
-    "test_models_cache.py",
-    "test_models_compiler.py",
-    "test_models_external_artifacts.py",
-    "test_models_resolver.py",
-    "test_models_schema.py",
-    "test_netlist_construction.py",
-    "test_netlist_mutation_surface.py",
-    "test_netlist_rendering.py",
-    "test_netlist_roundtrip_parser.py",
-    "test_sim_digital_result_extraction.py",
-    "test_sim_digital_task_construction.py",
-    "test_sim_digital_timing_claims.py",
-    "test_sim_digital_truth_table_spec.py",
-    "test_sim_results_analysis.py",
-    "test_sim_results_core.py",
-    "test_sim_results_export_plot.py",
-    "test_sim_results_measurement.py",
+    "models/test_models_cache.py",
+    "models/test_models_compiler.py",
+    "models/test_models_external_artifacts.py",
+    "models/test_models_resolver.py",
+    "models/test_models_schema.py",
+    "netlist/test_netlist_construction.py",
+    "netlist/test_netlist_mutation_surface.py",
+    "netlist/test_netlist_rendering.py",
+    "netlist/test_netlist_roundtrip_parser.py",
+    "sim/test_sim_digital_result_extraction.py",
+    "sim/test_sim_digital_task_construction.py",
+    "sim/test_sim_digital_timing_claims.py",
+    "sim/test_sim_digital_truth_table_spec.py",
+    "sim/test_sim_results_analysis.py",
+    "sim/test_sim_results_core.py",
+    "sim/test_sim_results_export_plot.py",
+    "sim/test_sim_results_measurement.py",
 }
 
 NATIVE_SPLIT_SUITES = {
-    "test_foundation_closed_loop.py",
-    "test_p4_workflow.py",
-    "test_sim_backend_native_artifact_parsing.py",
-    "test_sim_backend_native_failure_handling.py",
-    "test_sim_backend_native_planning.py",
-    "test_sim_backend_native_subprocess.py",
+    "integration/test_foundation_closed_loop.py",
+    "integration/test_p4_workflow.py",
+    "sim/test_sim_backend_native_artifact_parsing.py",
+    "sim/test_sim_backend_native_failure_handling.py",
+    "sim/test_sim_backend_native_planning.py",
+    "sim/test_sim_backend_native_subprocess.py",
 }
 
 INTEGRATION_SUITES = {
-    "test_foundation_closed_loop.py",
-    "test_integration.py",
-    "test_p4_workflow.py",
-    "test_sinomos_project_examples.py",
+    "integration/test_foundation_closed_loop.py",
+    "integration/test_integration.py",
+    "integration/test_p4_workflow.py",
 }
 
 STABLE_SUPPORT_EXPORTS = {
@@ -112,17 +111,29 @@ def test_pytest_marker_taxonomy_is_strict_and_registered():
     assert {"fast", "integration", "native", "slow"} <= marker_names
 
 
-def test_large_legacy_suites_stay_split():
-    assert not any((TEST_ROOT / name).exists() for name in DELETED_LARGE_SUITES)
+def test_large_root_suites_stay_split():
+    deleted_suites = [
+        path.relative_to(TEST_ROOT).as_posix()
+        for name in DELETED_LARGE_SUITES
+        for path in TEST_ROOT.rglob(name)
+    ]
+
+    assert deleted_suites == []
 
 
 def test_split_suites_keep_layer_markers():
-    for name in SLOW_SPLIT_SUITES:
-        assert "slow" in _module_markers(TEST_ROOT / name)
-    for name in NATIVE_SPLIT_SUITES:
-        assert "native" in _module_markers(TEST_ROOT / name)
-    for name in INTEGRATION_SUITES:
-        assert "integration" in _module_markers(TEST_ROOT / name)
+    for relative_path in SLOW_SPLIT_SUITES:
+        assert "slow" in _module_markers(TEST_ROOT / relative_path)
+    for relative_path in NATIVE_SPLIT_SUITES:
+        assert "native" in _module_markers(TEST_ROOT / relative_path)
+    for relative_path in INTEGRATION_SUITES:
+        assert "integration" in _module_markers(TEST_ROOT / relative_path)
+
+
+def test_test_modules_are_grouped_by_topic():
+    root_test_modules = sorted(path.name for path in TEST_ROOT.glob("test_*.py"))
+
+    assert root_test_modules == []
 
 
 def test_stable_support_modules_expose_explicit_api():

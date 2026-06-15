@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Iterable, Literal, Mapping, cast
+from typing import Any, Iterable, Literal, Mapping
 
 from monata.corner import CornerLike
 from monata.models.flow import SimulationModelConfig
@@ -24,7 +24,14 @@ from monata.sim.digital_results import (
     DigitalPropagationDelayRow as _DigitalPropagationDelayRow,
     DigitalTruthTableResult as _DigitalTruthTableResult,
 )
-from monata.sim.digital_spec import DigitalTruthTableSpec, ExpectedLike, ExpectedTable
+from monata.sim.digital_spec import (
+    DigitalMeasurementName,
+    DigitalVerificationSpec,
+    DigitalVerificationMeasure,
+    ExpectedLike,
+    ExpectedTable,
+    resolve_digital_measurements,
+)
 from monata.sim.digital_table_config import (
     SetupFn,
     SubCircuitInput,
@@ -40,8 +47,9 @@ from monata.sim.task import SimArtifactOptions, SimTask
 
 __all__ = [
     "DigitalMeasurementName",
+    "DigitalVerificationMeasure",
     "DigitalTruthTableMode",
-    "DigitalTruthTableSpec",
+    "DigitalVerificationSpec",
     "DigitalTruthTable",
     "ExpectedTable",
     "SetupFn",
@@ -53,13 +61,12 @@ __all__ = [
     "resolve_digital_truth_table_mode",
 ]
 
-DigitalMeasurementName = Literal["truth_table", "max_propagation_delay"]
 DigitalTruthTableMode = Literal["transient"]
 
 
 def build_digital_truth_table_from_spec(
     library: Any,
-    spec: DigitalTruthTableSpec,
+    spec: DigitalVerificationSpec,
     *,
     run_config: Any,
     mode: str,
@@ -82,9 +89,9 @@ def build_digital_truth_table_from_spec(
     resolved_metadata = {
         "library": getattr(library, "name", None),
         "cell": spec.dut,
-        "stage": spec.stage,
         "oracle": spec.oracle,
-        "testbench": f"digital_{mode}_truth_table",
+        "verification_measures": list(spec.measurements),
+        "simulation_analysis": mode,
         **dict(spec.metadata),
         **dict(metadata or {}),
     }
@@ -485,25 +492,10 @@ class DigitalTruthTable:
                 ) from exc
         return tuple(rows), tuple(results)
 
-def resolve_digital_measurements(
-    measurements: Iterable[str] | None = None,
-    *,
-    default: Iterable[str] = ("truth_table",),
-) -> tuple[DigitalMeasurementName, ...]:
-    selected = tuple(dict.fromkeys(str(name) for name in (default if measurements is None else measurements)))
-    if not selected:
-        raise ValueError("digital measurement list must not be empty")
-    supported = {"truth_table", "max_propagation_delay"}
-    unknown = sorted(set(selected) - supported)
-    if unknown:
-        raise ValueError("unsupported digital measurements: " + ", ".join(unknown))
-    return cast(tuple[DigitalMeasurementName, ...], selected)
-
-
 def resolve_digital_truth_table_mode(mode: str) -> DigitalTruthTableMode:
     if mode == "transient":
         return "transient"
-    raise ValueError(f"unsupported digital truth-table mode: {mode}")
+    raise ValueError(f"unsupported digital verification analysis: {mode}")
 
 
 def _load_schematic_from_library(library: Any, cell_name: str, run_config: Any) -> SubCircuitInput:
@@ -512,5 +504,5 @@ def _load_schematic_from_library(library: Any, cell_name: str, run_config: Any) 
 
     return schematic_view_to_subcircuit(
         library[cell_name]["schematic"],
-        reason="digital_truth_table spec",
+        reason="truth-table verification spec",
     )

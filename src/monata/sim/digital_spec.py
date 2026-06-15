@@ -1,27 +1,31 @@
-"""Digital truth-table specification data types."""
+"""Digital verification specification data types."""
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 import json
 
 from monata.sim._digital_bits import _coerce_bits, _expected_row_parts, bit_combinations, bits_to_text
-from monata.sim.digital_claims import (
-    DigitalTransientObservation,
-    DigitalVerificationClaim,
-    ExpectedFn,
-)
+from monata.sim.digital_claims import DigitalVerificationClaim, ExpectedFn
 
 
 __all__ = [
-    "DigitalTruthTableSpec",
+    "DIGITAL_MEASUREMENT_NAMES",
+    "DigitalMeasurementName",
+    "DigitalVerificationMeasure",
+    "DigitalVerificationSpec",
     "ExpectedTableReference",
     "ExpectedLike",
     "ExpectedTable",
+    "resolve_digital_measurements",
 ]
+
+
+DigitalMeasurementName = Literal["truth_table", "max_propagation_delay"]
+DIGITAL_MEASUREMENT_NAMES = frozenset({"truth_table", "max_propagation_delay"})
 
 
 @dataclass(frozen=True)
@@ -114,20 +118,32 @@ class ExpectedTable:
 ExpectedLike = ExpectedFn | ExpectedTable
 
 
-_DIGITAL_TRUTH_TABLE_FIELDS = frozenset({
+_TRUTH_TABLE_VERIFICATION_FIELDS = frozenset({
     "schema_version",
     "view_type",
+    "measures",
     "dut",
-    "stage",
-    "simulation_mode",
     "inputs",
     "outputs",
     "dependencies",
     "rails",
     "complement_inputs",
+    "metadata",
+})
+
+_MEASURE_COMMON_FIELDS = frozenset({
+    "name",
+    "metadata",
+})
+
+_TRUTH_TABLE_MEASURE_FIELDS = frozenset({
+    *_MEASURE_COMMON_FIELDS,
     "oracle",
     "expected",
-    "metadata",
+})
+
+_MAX_PROPAGATION_DELAY_MEASURE_FIELDS = frozenset({
+    *_MEASURE_COMMON_FIELDS,
 })
 
 _EXPECTED_TABLE_REFERENCE_FIELDS = frozenset({
@@ -159,27 +175,14 @@ class ExpectedTableReference:
 
 
 @dataclass(frozen=True)
-class DigitalTruthTableSpec:
-    """Project-declared truth-table view data.
+class DigitalVerificationMeasure:
+    """One user-declared verification measure."""
 
-    The spec carries user-owned facts: DUT identity, pins, rails, dependencies,
-    simulation preference, and a user-supplied expected table. It intentionally
-    does not derive logic semantics.
-    """
-
-    dut: str
-    inputs: tuple[str, ...]
-    outputs: tuple[str, ...]
-    expected: ExpectedLike | None = None
+    name: DigitalMeasurementName
     oracle: str = "exact"
-    dependencies: tuple[str, ...] = ()
-    rails: tuple[str, str] = ("vdd", "0")
-    complement_inputs: tuple[str, ...] = ()
-    simulation_mode: str = "transient"
-    transient_observation: DigitalTransientObservation | None = None
-    stage: str = "custom"
-    metadata: Mapping[str, Any] = field(default_factory=dict)
+    expected: ExpectedLike | None = None
     expected_ref: ExpectedTableReference | Mapping[str, Any] | None = None
+    metadata: Mapping[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_mapping(
@@ -187,25 +190,93 @@ class DigitalTruthTableSpec:
         payload: Mapping[str, Any],
         *,
         expected: ExpectedLike | None = None,
-    ) -> "DigitalTruthTableSpec":
-        """Parse the canonical data-only digital truth-table JSON shape.
+    ) -> "DigitalVerificationMeasure":
+        name = _required_string(payload.get("name"), "measure.name")
+        if name == "truth_table":
+            _reject_unknown(payload, _TRUTH_TABLE_MEASURE_FIELDS, "truth_table measure")
+            if "expected" not in payload:
+                raise ValueError("truth_table measure requires expected")
+            return cls(
+                name="truth_table",
+                oracle=str(payload.get("oracle", "exact")),
+                expected=expected,
+                expected_ref=ExpectedTableReference.from_mapping(
+                    _required_mapping(payload["expected"], "measure.expected")
+                ),
+                metadata=_optional_mapping(payload.get("metadata"), "measure.metadata"),
+            )
+        if name == "max_propagation_delay":
+            _reject_unknown(payload, _MAX_PROPAGATION_DELAY_MEASURE_FIELDS, "max_propagation_delay measure")
+            return cls(
+                name="max_propagation_delay",
+                metadata=_optional_mapping(payload.get("metadata"), "measure.metadata"),
+            )
+        raise ValueError(f"unsupported digital measure: {name}")
+
+    def to_mapping(self) -> dict[str, object]:
+        data: dict[str, object] = {"name": self.name}
+        if self.name == "truth_table":
+            data["oracle"] = self.oracle
+            if self.expected_ref is not None:
+                data["expected"] = _expected_ref_to_mapping(self.expected_ref)
+        metadata = dict(self.metadata)
+        if metadata:
+            data["metadata"] = metadata
+        return data
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "name", resolve_digital_measurements((self.name,))[0])
+        object.__setattr__(self, "metadata", dict(self.metadata))
+        if self.expected_ref is not None and not isinstance(self.expected_ref, ExpectedTableReference):
+            object.__setattr__(
+                self,
+                "expected_ref",
+                ExpectedTableReference.from_mapping(self.expected_ref),
+            )
+
+
+@dataclass(frozen=True)
+class DigitalVerificationSpec:
+    """Project-declared digital verification data.
+
+    The spec carries user-owned facts: DUT identity, pins, rails, dependencies,
+    verification measures, and measure-owned expected data. It intentionally does
+    not carry simulation analysis or execution configuration.
+    """
+
+    dut: str
+    inputs: tuple[str, ...]
+    outputs: tuple[str, ...]
+    measures: tuple[DigitalVerificationMeasure, ...]
+    dependencies: tuple[str, ...] = ()
+    rails: tuple[str, str] = ("vdd", "0")
+    complement_inputs: tuple[str, ...] = ()
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_mapping(
+        cls,
+        payload: Mapping[str, Any],
+        *,
+        expected: ExpectedLike | None = None,
+    ) -> "DigitalVerificationSpec":
+        """Parse the canonical data-only digital verification JSON shape.
 
         The parser deliberately stays filesystem-agnostic. Loader code resolves
-        ``expected.entry`` and passes the parsed table through ``expected``.
+        truth-table ``expected.entry`` and passes the parsed table through
+        ``expected``.
         """
 
-        _reject_unknown(payload, _DIGITAL_TRUTH_TABLE_FIELDS, "digital truth-table spec")
+        _reject_unknown(payload, _TRUTH_TABLE_VERIFICATION_FIELDS, "digital verification spec")
         schema_version = payload.get("schema_version")
         if schema_version != 1:
-            raise ValueError(f"unsupported digital truth-table schema_version: {schema_version}")
+            raise ValueError(f"unsupported verification schema_version: {schema_version}")
         view_type = str(payload.get("view_type", ""))
-        if view_type != "monata-digital-truth-table":
-            raise ValueError(f"unsupported digital truth-table view_type: {view_type}")
-        if "expected" not in payload:
-            raise ValueError("digital truth-table spec requires expected")
-        expected_ref = ExpectedTableReference.from_mapping(
-            _required_mapping(payload["expected"], "expected")
-        )
+        if view_type != "monata-verification":
+            raise ValueError(f"unsupported verification view_type: {view_type}")
+        if "measures" not in payload:
+            raise ValueError("digital verification spec requires measures")
+        measures = _measures_from_sequence(payload["measures"], expected=expected)
         inputs = _string_tuple(payload.get("inputs"), "inputs", require_nonempty=True)
         complement_inputs = _complement_inputs_from_mapping(
             payload.get("complement_inputs", {}),
@@ -218,16 +289,36 @@ class DigitalTruthTableSpec:
             dut=_required_string(payload.get("dut"), "dut"),
             inputs=inputs,
             outputs=_string_tuple(payload.get("outputs"), "outputs", require_nonempty=True),
-            expected=expected,
-            oracle=str(payload.get("oracle", "exact")),
+            measures=measures,
             dependencies=_string_tuple(payload.get("dependencies", ()), "dependencies"),
             rails=_rails_from_mapping(payload.get("rails", {"vdd": "vdd", "vss": "0"})),
             complement_inputs=complement_inputs,
-            simulation_mode=str(payload.get("simulation_mode", "transient")),
-            stage=str(payload.get("stage", "custom")),
             metadata=metadata,
-            expected_ref=expected_ref,
         )
+
+    @property
+    def measurements(self) -> tuple[DigitalMeasurementName, ...]:
+        return tuple(measure.name for measure in self.measures)
+
+    @property
+    def truth_table_measure(self) -> DigitalVerificationMeasure:
+        for measure in self.measures:
+            if measure.name == "truth_table":
+                return measure
+        raise RuntimeError("digital verification spec has no truth_table measure")
+
+    @property
+    def expected(self) -> ExpectedLike | None:
+        return self.truth_table_measure.expected
+
+    @property
+    def expected_ref(self) -> ExpectedTableReference | None:
+        expected_ref = self.truth_table_measure.expected_ref
+        return expected_ref if isinstance(expected_ref, ExpectedTableReference) else None
+
+    @property
+    def oracle(self) -> str:
+        return self.truth_table_measure.oracle
 
     @property
     def row_count(self) -> int:
@@ -244,10 +335,9 @@ class DigitalTruthTableSpec:
     def to_mapping(self) -> dict[str, object]:
         data: dict[str, object] = {
             "schema_version": 1,
-            "view_type": "monata-digital-truth-table",
+            "view_type": "monata-verification",
+            "measures": [measure.to_mapping() for measure in self.measures],
             "dut": self.dut,
-            "stage": self.stage,
-            "simulation_mode": self.simulation_mode,
             "inputs": list(self.inputs),
             "outputs": list(self.outputs),
             "dependencies": list(self.dependencies),
@@ -256,11 +346,8 @@ class DigitalTruthTableSpec:
                 self.inputs,
                 self.complement_inputs,
             ),
-            "oracle": self.oracle,
         }
         metadata = dict(self.metadata)
-        if self.expected_ref is not None:
-            data["expected"] = _expected_ref_to_mapping(self.expected_ref)
         if metadata:
             data["metadata"] = metadata
         return data
@@ -268,20 +355,67 @@ class DigitalTruthTableSpec:
     def __post_init__(self) -> None:
         object.__setattr__(self, "inputs", tuple(self.inputs))
         object.__setattr__(self, "outputs", tuple(self.outputs))
+        object.__setattr__(
+            self,
+            "measures",
+            _normalize_measure_specs(self.measures),
+        )
         object.__setattr__(self, "dependencies", tuple(self.dependencies))
         object.__setattr__(self, "complement_inputs", tuple(self.complement_inputs))
         object.__setattr__(self, "metadata", dict(self.metadata))
-        if self.expected_ref is not None and not isinstance(self.expected_ref, ExpectedTableReference):
-            object.__setattr__(
-                self,
-                "expected_ref",
-                ExpectedTableReference.from_mapping(self.expected_ref),
-            )
         if isinstance(self.expected, ExpectedTable):
             self.expected.validate(
                 input_width=len(self.inputs),
                 output_width=len(self.outputs),
             )
+
+
+def resolve_digital_measurements(
+    measurements: Iterable[str] | None = None,
+    *,
+    default: Iterable[str] = ("truth_table",),
+) -> tuple[DigitalMeasurementName, ...]:
+    selected = tuple(dict.fromkeys(str(name) for name in (default if measurements is None else measurements)))
+    if not selected:
+        raise ValueError("digital measurement list must not be empty")
+    unknown = sorted(set(selected) - DIGITAL_MEASUREMENT_NAMES)
+    if unknown:
+        raise ValueError("unsupported digital measurements: " + ", ".join(unknown))
+    return cast(tuple[DigitalMeasurementName, ...], selected)
+
+
+def _measures_from_sequence(
+    value: Any,
+    *,
+    expected: ExpectedLike | None,
+) -> tuple[DigitalVerificationMeasure, ...]:
+    measures_payload = _required_sequence(value, "measures")
+    measures: list[DigitalVerificationMeasure] = []
+    for index, item in enumerate(measures_payload):
+        payload = _required_mapping(item, f"measures[{index}]")
+        measure_expected = expected if payload.get("name") == "truth_table" else None
+        measures.append(DigitalVerificationMeasure.from_mapping(payload, expected=measure_expected))
+    return _normalize_measure_specs(measures)
+
+
+def _normalize_measure_specs(
+    measures: Iterable[DigitalVerificationMeasure | Mapping[str, Any]],
+) -> tuple[DigitalVerificationMeasure, ...]:
+    normalized = tuple(
+        measure
+        if isinstance(measure, DigitalVerificationMeasure)
+        else DigitalVerificationMeasure.from_mapping(measure)
+        for measure in measures
+    )
+    if not normalized:
+        raise ValueError("digital verification measure list must not be empty")
+    names = [measure.name for measure in normalized]
+    duplicate_names = sorted({name for name in names if names.count(name) > 1})
+    if duplicate_names:
+        raise ValueError("duplicate digital measures: " + ", ".join(duplicate_names))
+    if "truth_table" not in names:
+        raise ValueError("digital verification spec requires a truth_table measure")
+    return normalized
 
 
 def _reject_unknown(payload: Mapping[str, Any], allowed: frozenset[str], label: str) -> None:
@@ -293,6 +427,12 @@ def _reject_unknown(payload: Mapping[str, Any], allowed: frozenset[str], label: 
 def _required_mapping(value: Any, label: str) -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
         raise TypeError(f"{label} must be an object")
+    return value
+
+
+def _required_sequence(value: Any, label: str) -> Sequence[Any]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes, bytearray)):
+        raise TypeError(f"{label} must be an array")
     return value
 
 

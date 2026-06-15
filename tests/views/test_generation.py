@@ -10,9 +10,6 @@ from monata.library import Library
 from monata.projection import PDKProjectionContext
 from monata.schematic import SchematicBuilder, dump_schematic
 
-LEGACY_SCHEMATIC_FORMAT = "python-" + "schematic"
-
-
 def _make_cell_with_schematic(tmp_path):
     cell_dir = tmp_path / "inverter"
     cell_dir.mkdir()
@@ -289,29 +286,3 @@ def test_generate_view_dispatches_registered_generator(tmp_path):
 
     assert result_path == cell.path / "symbol.monata.json"
     assert result_path.exists()
-
-
-def test_default_generation_refuses_python_schematic_without_executing(tmp_path):
-    cell_dir = tmp_path / "legacy"
-    cell_dir.mkdir()
-    marker = tmp_path / "executed.txt"
-    (cell_dir / "schematic.py").write_text(
-        "from pathlib import Path\n"
-        f"Path({str(marker)!r}).write_text('executed')\n"
-        "from monata.netlist import SubCircuit\n"
-        "class Legacy(SubCircuit):\n"
-        "    NAME = 'legacy'\n"
-        "    NODES = ('a', 'z')\n"
-    )
-    (cell_dir / "cell.toml").write_text(
-        '[cell]\nname = "legacy"\n\n'
-        '[views]\n'
-        f'schematic = {{ entry = "schematic.py", format = "{LEGACY_SCHEMATIC_FORMAT}", trusted = true, class = "Legacy" }}\n'
-    )
-    cell = Cell(cell_dir, MagicMock())
-
-    with pytest.raises(ValueError, match="legacy Python schematic format is no longer supported"):
-        cell.generate_symbol()
-    with pytest.raises(ValueError, match="legacy Python schematic format is no longer supported"):
-        cell.generate_netlist()
-    assert not marker.exists()

@@ -245,7 +245,7 @@ class DigitalTruthTablePlan:
         return {
             "schema": DIGITAL_TASK_METADATA_SCHEMA,
             "measurements": list(measurements),
-            "digital_truth_table": {
+            "digital_verification": {
                 "task_kind": task_kind,
                 "dut": table.dut_name,
                 "inputs": list(table.inputs),

@@ -25,7 +25,7 @@ __all__ = [
 _RECIPE_FIELDS = frozenset({
     "schema_version",
     "view_type",
-    "recipe_kind",
+    "analysis",
     "timing",
     "load",
     "observation",
@@ -301,7 +301,7 @@ class DigitalResolvedSimulationRecipe:
 
     def metadata(self) -> dict[str, object]:
         return {
-            "simulation_recipe": self.recipe.recipe_kind,
+            "simulation_analysis": self.recipe.analysis,
             "model_profile": self.selected_profile,
             "observation": self.observation.as_dict(),
         }
@@ -317,7 +317,7 @@ class DigitalSimulationRecipe:
     metadata: Mapping[str, Any] = field(default_factory=dict)
     schema_version: int = 1
     view_type: str = "monata-simulation"
-    recipe_kind: str = "digital_truth_table_transient"
+    analysis: str = "transient"
 
     @classmethod
     def from_mapping(cls, payload: Mapping[str, Any]) -> "DigitalSimulationRecipe":
@@ -328,9 +328,9 @@ class DigitalSimulationRecipe:
         view_type = str(payload.get("view_type", ""))
         if view_type != "monata-simulation":
             raise ValueError(f"unsupported digital simulation view_type: {view_type}")
-        recipe_kind = str(payload.get("recipe_kind", ""))
-        if recipe_kind != "digital_truth_table_transient":
-            raise ValueError(f"unsupported digital simulation recipe_kind: {recipe_kind}")
+        analysis = str(payload.get("analysis", ""))
+        if analysis != "transient":
+            raise ValueError(f"unsupported digital simulation analysis: {analysis}")
         profiles = _required_mapping(payload.get("model_profiles"), "model_profiles")
         if not profiles:
             raise ValueError("digital simulation recipe requires at least one model profile")
@@ -352,6 +352,7 @@ class DigitalSimulationRecipe:
             },
             backend_options=dict(_optional_mapping(payload.get("backend_options"), "backend_options")),
             metadata=dict(_optional_mapping(payload.get("metadata"), "metadata")),
+            analysis=analysis,
         )
 
     def select_profile(self, run_config: Any) -> tuple[str, DigitalModelProfile]:
@@ -383,7 +384,7 @@ class DigitalSimulationRecipe:
         )
         effective_artifacts = SimArtifactOptions.coerce(artifacts)
         metadata = {
-            "simulation_recipe": self.recipe_kind,
+            "simulation_analysis": self.analysis,
             "model_profile": profile_name,
             "observation": resolved_observation.as_dict(),
             **dict(self.metadata),
@@ -422,7 +423,7 @@ class DigitalSimulationRecipe:
         data: dict[str, object] = {
             "schema_version": self.schema_version,
             "view_type": self.view_type,
-            "recipe_kind": self.recipe_kind,
+            "analysis": self.analysis,
             "timing": self.timing.to_mapping(),
             "load": self.load.to_mapping(),
             "observation": self.observation.as_dict(),
