@@ -647,7 +647,7 @@ def test_analysis_result_windowed_crops_abscissa_and_waveforms():
             "in": np.array([0.0, 1.0, 0.0, -1.0]),
         },
         np.array([0.0, 1.0, 2.0, 3.0]),
-        {"analysis": "tran", "run": "smoke"},
+        {"analysis": "tran", "run": "sanity"},
         source_vectors={"out": "v(out)", "in": "v(in)"},
     )
 
@@ -655,7 +655,7 @@ def test_analysis_result_windowed_crops_abscissa_and_waveforms():
 
     assert windowed.analysis == "tran"
     assert windowed.source == result.source
-    assert windowed.metadata == {"analysis": "tran", "run": "smoke"}
+    assert windowed.metadata == {"analysis": "tran", "run": "sanity"}
     assert windowed.abscissa is not None
     assert windowed.abscissa.name == "time"
     assert windowed.abscissa.unit == "s"

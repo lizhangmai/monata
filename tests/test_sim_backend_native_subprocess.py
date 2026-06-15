@@ -53,7 +53,7 @@ def test_native_ngspice_dc_sweep():
     assert result.metadata["fallback_used"] is False
 
 
-def test_native_ngspice_dc_dual_sweep_smoke():
+def test_native_ngspice_dc_dual_sweep_sanity():
     task = SimTask(
         circuit=_dc_dual_sweep_circuit(),
         analysis_spec=DCSpec(source="V1", start=0, stop=1, step=0.5, secondary=DCSweep("V2", 0, 1, 0.5)),
@@ -85,7 +85,7 @@ def test_native_ngspice_dc_sweep_source_names_cover_spice_sweep_targets():
         assert plan.command == command
 
 
-def test_native_ngspice_tran_smoke():
+def test_native_ngspice_tran_sanity():
     task = SimTask(
         circuit=_tran_circuit(),
         analysis_spec=TranSpec(step=1e-9, stop=5e-9),
@@ -128,7 +128,7 @@ def test_native_ngspice_tran_accepts_explicit_vector_requests():
     np.testing.assert_allclose(waveform.data, result.waveforms["i(V1)"])
 
 
-def test_native_ngspice_ac_smoke():
+def test_native_ngspice_ac_sanity():
     task = SimTask(
         circuit=_ac_circuit(),
         analysis_spec=ACSpec(start=1, stop=1e6, points=10),
@@ -192,7 +192,7 @@ def test_native_ngspice_ac_python_side_transforms_use_raw_complex_vector():
     assert "phase(v(out))" not in result.analysis_result.voltages
 
 
-def test_native_ngspice_op_smoke():
+def test_native_ngspice_op_sanity():
     task = SimTask(
         circuit=_dc_circuit(),
         analysis_spec=OPSpec(),
@@ -217,7 +217,7 @@ def test_native_ngspice_op_smoke():
     np.testing.assert_allclose(result.analysis_result.waveform("in").data, result.waveforms["in"])
 
 
-def test_native_ngspice_noise_smoke():
+def test_native_ngspice_noise_sanity():
     task = SimTask(
         circuit=_ac_circuit(),
         analysis_spec=NoiseSpec(output_node="out", input_source="V1", start=1, stop=1e3, points=3),
@@ -251,7 +251,7 @@ def test_native_ngspice_noise_smoke():
     )
 
 
-def test_native_ngspice_sensitivity_smoke():
+def test_native_ngspice_sensitivity_sanity():
     task = SimTask(circuit=_ac_circuit(), analysis_spec=SensitivitySpec(output="v(out)"))
 
     result = LocalExecutor(max_workers=1).submit(task).result()
@@ -299,7 +299,7 @@ def test_native_ngspice_ac_sensitivity_uses_frequency_abscissa():
     np.testing.assert_allclose(waveform.abscissa_data, result.analysis_result.frequency)
 
 
-def test_native_ngspice_pole_zero_smoke():
+def test_native_ngspice_pole_zero_sanity():
     task = SimTask(
         circuit=_ac_circuit(),
         analysis_spec=PoleZeroSpec(input_pos="in", input_neg="0", output_pos="out", output_neg="0"),
@@ -328,7 +328,7 @@ def test_native_ngspice_pole_zero_smoke():
     assert waveform.metadata["pole_zero_kind"] == waveform.vector_kind
 
 
-def test_native_ngspice_distortion_smoke():
+def test_native_ngspice_distortion_sanity():
     task = SimTask(circuit=_distortion_circuit(), analysis_spec=DistortionSpec(start=1, stop=1e3, points=3))
 
     result = LocalExecutor(max_workers=1).submit(task).result()
@@ -368,7 +368,7 @@ def test_native_ngspice_distortion_smoke():
     assert branch.unit == "A"
 
 
-def test_native_ngspice_transfer_function_smoke():
+def test_native_ngspice_transfer_function_sanity():
     task = SimTask(circuit=_ac_circuit(), analysis_spec=TransferFunctionSpec(output="v(out)", input_source="V1"))
 
     result = LocalExecutor(max_workers=1).submit(task).result()
@@ -408,7 +408,7 @@ def test_native_ngspice_transfer_function_smoke():
     assert result.analysis_result.waveform("output_resistance").metadata == {"tf_output_vector": "v(out)"}
 
 
-def test_native_ngspice_fourier_smoke():
+def test_native_ngspice_fourier_sanity():
     task = SimTask(
         circuit=_fourier_circuit(),
         analysis_spec=FourierSpec(frequency=1000, output="v(out)", stop=0.002, step=1e-5),

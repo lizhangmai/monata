@@ -78,7 +78,7 @@ def test_native_ngspice_persists_requested_artifacts(tmp_path):
     assert result.status == "ok", result.error_message
     artifacts = result.metadata["artifacts"]
     assert artifacts["directory"] == str(artifact_dir)
-    assert Path(artifacts["files"]["netlist"]).read_text().startswith("tran smoke")
+    assert Path(artifacts["files"]["netlist"]).read_text().startswith("tran sanity")
     assert Path(artifacts["files"]["rawfile"]).is_file()
     assert Path(artifacts["files"]["wrdata"]).is_file()
     assert Path(artifacts["files"]["stdout"]).is_file()

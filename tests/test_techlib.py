@@ -622,7 +622,7 @@ def test_corner_device_defaults_fill_omitted_params_and_explicit_params_win(tmp_
 def test_pdk_instance_preserves_identity_and_projects_to_existing_ir(tmp_path):
     _write_minimal_techlib(tmp_path)
     registry = TechlibRegistry(search_paths=[tmp_path], auto_discover=False)
-    circuit = Circuit("ptm smoke")
+    circuit = Circuit("ptm sanity")
     source = circuit.pdk_instance(
         "mn",
         lib="PTM_MG",
@@ -651,7 +651,7 @@ def test_pdk_instance_preserves_identity_and_projects_to_existing_ir(tmp_path):
     assert projection.element.params["l"] == "20n"
     assert projection.element.params["nfin"] == 2
     assert render_ngspice(circuit) == (
-        "ptm smoke\n"
+        "ptm sanity\n"
         f".lib {tmp_path / 'PTM_MG' / 'models' / 'ptm_mg_models.mod'} ptm20hp\n"
         "\n"
         "Xmn out in 0 0 nfet l=20n nfin=2\n"

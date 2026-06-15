@@ -48,7 +48,7 @@ def test_subcircuit_to_spice_uses_native_renderer():
 
 
 def test_render_native_circuit_with_all_milestone_primitives():
-    circuit = Circuit("primitive smoke")
+    circuit = Circuit("primitive sanity")
     circuit.include("/models/devices.mod")
     circuit.param("temp", 27)
     circuit.subckt(Inverter)
@@ -62,7 +62,7 @@ def test_render_native_circuit_with_all_milestone_primitives():
     netlist = render_ngspice(circuit)
 
     assert netlist == (
-        "primitive smoke\n"
+        "primitive sanity\n"
         '.include "/models/devices.mod"\n'
         ".param temp=27\n"
         "\n"

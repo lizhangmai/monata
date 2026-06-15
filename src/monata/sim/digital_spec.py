@@ -133,7 +133,6 @@ class DigitalTruthTableSpec:
     simulation_mode: str = "transient"
     transient_observation: DigitalTransientObservation | None = None
     stage: str = "custom"
-    smoke: bool = False
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
     @property

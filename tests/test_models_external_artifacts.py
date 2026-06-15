@@ -117,7 +117,7 @@ def test_model_resolver_allows_external_osdi_with_probe_validation(tmp_path):
     profile = ngspice_profile(
         osdi=CapabilityState.SUPPORTED,
         probes={
-            "external_osdi_smoke": {
+            "external_osdi_validation": {
                 "status": "passed",
                 "artifact_path": str(external),
                 "validation_identity": "probe:unit-test",
@@ -143,7 +143,7 @@ def test_model_resolver_rejects_external_osdi_with_unbound_probe_validation(tmp_
     external.write_text("external")
     profile = ngspice_profile(
         osdi=CapabilityState.SUPPORTED,
-        probes={"external_osdi_smoke": "passed"},
+        probes={"external_osdi_validation": "passed"},
     )
     config = SimulationModelConfig(
         simulator_profile=profile,

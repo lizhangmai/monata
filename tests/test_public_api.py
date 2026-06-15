@@ -497,7 +497,7 @@ def test_vector_name_helpers_resolve_owned_request_names():
     assert vector_names.normalize_vector_name("v(out)").normalized_name == "out"
 
 
-def test_sim_capabilities_model_flow_profile_smoke():
+def test_sim_capabilities_model_flow_profile_sanity():
     import monata.sim.capabilities as capabilities
 
     assert capabilities.ngspice_profile().backend_name == "ngspice-subprocess"

@@ -149,7 +149,7 @@ def test_operating_corner_separates_operating_point_from_model_corner(tmp_path):
         metadata={"source": "techlib"},
     )
 
-    corner = OperatingCorner.from_parts(point, model, metadata={"run": "smoke"})
+    corner = OperatingCorner.from_parts(point, model, metadata={"run": "sanity"})
 
     assert corner.operating_point == point
     assert corner.model_corner == ModelCornerRef(
@@ -162,12 +162,12 @@ def test_operating_corner_separates_operating_point_from_model_corner(tmp_path):
         process_node="65nm",
         flavor="bulk",
         device_defaults={"nmos": {"l": "65n"}},
-        metadata={"source": "techlib", "run": "smoke"},
+        metadata={"source": "techlib", "run": "sanity"},
     )
     assert corner.temperature == point.temperature
     assert corner.model_file == str(model_file)
     assert corner.defaults_for_device("nmos") == {"l": "65n"}
-    assert corner.to_dict()["metadata"] == {"source": "techlib", "run": "smoke"}
+    assert corner.to_dict()["metadata"] == {"source": "techlib", "run": "sanity"}
 
 
 @pytest.mark.parametrize("section", ["tt", "ss_125c", "ptm65:tt", "ptm.65-tt"])

@@ -795,7 +795,7 @@ def _external_osdi_probe_validation(path: Path, profile: SimulatorProfile) -> di
         return None
     probes = (profile.probes, profile.capabilities.probes)
     for probe_set in probes:
-        for key in ("external_osdi_smoke", "osdi_artifact_probe"):
+        for key in ("external_osdi_validation", "osdi_artifact_probe"):
             raw = probe_set.get(key)
             if not isinstance(raw, dict):
                 continue

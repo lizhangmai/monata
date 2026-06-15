@@ -510,7 +510,7 @@ def test_shared_session_parses_show_and_resource_usage_output():
     assert not hasattr(session, "ressource_usage")
 
 
-def test_shared_session_smoke_when_libngspice_is_available():
+def test_shared_session_sanity_when_libngspice_is_available():
     if not NgspiceSharedSession.available():
         pytest.skip("libngspice shared library is not available")
 
@@ -525,7 +525,7 @@ def test_shared_session_smoke_when_libngspice_is_available():
     np.testing.assert_allclose(vectors["out"], np.array([0.5]), rtol=1e-6, atol=1e-9)
 
 
-def test_shared_runner_smoke_when_libngspice_is_available():
+def test_shared_runner_sanity_when_libngspice_is_available():
     if not NgspiceSharedRunner.available():
         pytest.skip("libngspice shared library is not available")
 

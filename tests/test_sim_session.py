@@ -253,7 +253,7 @@ def test_circuit_simulator_creates_backend_neutral_session():
     session = circuit.simulator(
         simulator="ngspice-shared",
         output_names=["out", "out", "in"],
-        metadata={"suite": "smoke"},
+        metadata={"suite": "sanity"},
         backend_options={"rawfile_format": "binary"},
         artifacts={"directory": "artifacts", "overwrite": True},
         snapshot_tasks=False,
@@ -266,7 +266,7 @@ def test_circuit_simulator_creates_backend_neutral_session():
     assert session.circuit is circuit
     assert session.simulator == "ngspice-shared"
     assert session.output_names == ("out", "in")
-    assert session.metadata == {"suite": "smoke"}
+    assert session.metadata == {"suite": "sanity"}
     assert session.backend_options == {"rawfile_format": "binary"}
     assert str(session.artifacts.directory) == "artifacts"
     assert session.artifacts.overwrite is True

@@ -69,10 +69,10 @@ def test_unsupported_construct_fails_structurally():
     assert "unsupported dot command" in str(exc_info.value)
 
 
-def test_ngspice_smoke_when_available(tmp_path, require_ngspice):
+def test_ngspice_sanity_when_available(tmp_path, require_ngspice):
     circuit = parse_spice_to_circuit(
         """
-smoke
+sanity
 R1 in out 1k
 C1 out 0 1u
 V1 in 0 DC 1
@@ -80,7 +80,7 @@ V1 in 0 DC 1
 .end
 """
     )
-    deck_path = tmp_path / "smoke.cir"
+    deck_path = tmp_path / "sanity.cir"
     deck_path.write_text(render_ngspice(circuit))
     result = subprocess.run(
         ["ngspice", "-b", str(deck_path)],

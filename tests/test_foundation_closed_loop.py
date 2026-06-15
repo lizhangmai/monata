@@ -42,7 +42,7 @@ def test_foundation_project_to_ngspice_result_closed_loop(tmp_path, require_ngsp
     assert models.osdi_paths("mos") == [str(model_path)]
 
     subcircuit = cell["schematic"].to_circuit()
-    circuit = Circuit("foundation dc smoke")
+    circuit = Circuit("foundation dc sanity")
     circuit.subckt(subcircuit)
     circuit.voltage("1", "in", "0", "0")
     circuit.instance("probe", ("in", "out", "0"), subcircuit)
@@ -63,7 +63,7 @@ def test_foundation_project_to_ngspice_result_closed_loop(tmp_path, require_ngsp
     spec_result = spec.evaluate(result)
     assert spec_result.passed is True
 
-    experiment = project.new_experiment("dc_smoke")
+    experiment = project.new_experiment("dc_validation")
     experiment.save_results("nominal", result)
     loaded = experiment.load_results("nominal")
     assert isinstance(loaded, SimResult)
