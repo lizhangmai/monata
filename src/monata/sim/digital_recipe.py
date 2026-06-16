@@ -329,8 +329,10 @@ class DigitalSimulationRecipe:
         if view_type != "monata-simulation":
             raise ValueError(f"unsupported digital simulation view_type: {view_type}")
         analysis = str(payload.get("analysis", ""))
-        if analysis != "transient":
+        if analysis not in ("transient", "clocked_transient"):
             raise ValueError(f"unsupported digital simulation analysis: {analysis}")
+        if analysis == "clocked_transient":
+            analysis = "transient"
         profiles = _required_mapping(payload.get("model_profiles"), "model_profiles")
         if not profiles:
             raise ValueError("digital simulation recipe requires at least one model profile")
@@ -391,7 +393,7 @@ class DigitalSimulationRecipe:
             **dict(profile.metadata),
         }
         builder_kwargs = {
-            "mode": "transient",
+            "mode": self.analysis,
             "setup": profile.setup(),
             "projection_library": profile.projection.resolve_projection_library(library),
             "period": self.timing.period,

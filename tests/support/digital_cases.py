@@ -20,11 +20,8 @@ from monata.sim.core import SimResult, SimTask, TranSpec
 from monata.sim.digital_claims import (
     DigitalVerificationClaim,
 )
-from monata.sim.digital_plan import DigitalTruthTablePlan
-from monata.sim.digital_table import (
-    DigitalTruthTable,
-    ExpectedTable,
-)
+from monata.sim.digital_spec import ExpectedTable
+from monata.sim.digital_stim import DigitalStimulusConfig
 
 class And2(SubCircuit):
     NAME = "and2"
@@ -300,47 +297,6 @@ LOGIC_GATE_CASES = (
 )
 
 
-def _inverter_timing_waveforms(
-    table: DigitalTruthTable,
-    time: np.ndarray,
-    delays: tuple[float, ...],
-) -> dict[str, np.ndarray]:
-    input_points: list[tuple[float, float]] = []
-    output_points: list[tuple[float, float]] = []
-    previous_input: float | None = None
-    previous_output: float | None = None
-    for arc, delay in zip(table.propagation_delay_arcs(), delays):
-        initial_input = float(arc.from_inputs[0])
-        final_input = float(arc.to_inputs[0])
-        initial_output = float(arc.from_outputs[0])
-        final_output = float(arc.to_outputs[0])
-        if previous_input is None:
-            previous_input = initial_input
-        if previous_output is None:
-            previous_output = initial_output
-
-        _append_test_point(input_points, arc.start, previous_input)
-        _append_test_point(input_points, arc.reset_end, initial_input)
-        _append_test_point(input_points, arc.trigger_start, initial_input)
-        _append_test_point(input_points, arc.trigger_end, final_input)
-        _append_test_point(input_points, arc.stop, final_input)
-
-        input_crossing = (arc.trigger_start + arc.trigger_end) / 2.0
-        output_crossing = input_crossing + delay
-        _append_test_point(output_points, arc.start, previous_output)
-        _append_test_point(output_points, arc.reset_end, initial_output)
-        _append_test_point(output_points, output_crossing - table.transition / 2.0, initial_output)
-        _append_test_point(output_points, output_crossing + table.transition / 2.0, final_output)
-        _append_test_point(output_points, arc.stop, final_output)
-
-        previous_input = final_input
-        previous_output = final_output
-    return {
-        "vin": np.interp(time, [point[0] for point in input_points], [point[1] for point in input_points]),
-        "out": np.interp(time, [point[0] for point in output_points], [point[1] for point in output_points]),
-    }
-
-
 def _append_test_point(points: list[tuple[float, float]], time: float, value: float) -> None:
     if points and points[-1][0] == time and points[-1][1] == value:
         return
@@ -371,85 +327,111 @@ def _digital_task_metadata(task_or_metadata) -> Mapping[str, Any]:
     return payload
 
 
+def _make_stimulus(dut_cls, *, inputs, outputs, period=1e-9, step=None, transition=0.0):
+    """Build a minimal DigitalStimulusConfig for tests."""
+    return DigitalStimulusConfig(
+        dut=dut_cls,
+        inputs=tuple(inputs),
+        outputs=tuple(outputs),
+        period=float(period),
+        step=float(step) if step is not None else None,
+        transition=float(transition),
+    )
+
+
 def _sequence_result_for_task(
-    table: DigitalTruthTable,
+    stim: DigitalStimulusConfig,
     task: SimTask,
     *,
     delay: float | tuple[float, ...] = 0.0,
 ):
-    dummy = SimResult(
-        status="ok",
-        sweep_var=np.array([0.0, 1.0]),
-        waveforms={},
-        corner=None,
-        metadata=task.metadata,
-    )
-    schedule = DigitalTruthTablePlan(table).sequence_for_result(dummy)
-    arcs = schedule.arcs
-    initial_settle = schedule.initial_settle
-    slot_duration = schedule.slot_duration
-    states = [arcs[0].from_inputs, *(arc.to_inputs for arc in arcs)]
+    payload = _digital_task_metadata(task)
+    stimulus_meta = payload["stimulus"]
+    assert isinstance(stimulus_meta, Mapping)
+    kind = str(stimulus_meta.get("kind", ""))
     analysis_spec = task.analysis_spec
     assert isinstance(analysis_spec, TranSpec)
     stop = float(analysis_spec.stop)
-    step = float(analysis_spec.step or slot_duration / 20.0)
+    step = float(analysis_spec.step or 5e-11)
     time = np.linspace(0.0, stop, max(2, int(stop / step) + 1))
+
+    if kind == "digital_sequence":
+        return _clocked_sequence_waveforms(
+            stim, task, time, stimulus_meta, delay=delay
+        )
+
+    raise AssertionError(f"unsupported digital stimulus kind in test helper: {kind}")
+
+
+def _bits_from_text(text: str) -> tuple[int, ...]:
+    return tuple(int(bit) for bit in text.strip())
+
+
+def _clocked_sequence_waveforms(
+    stim: DigitalStimulusConfig,
+    task: SimTask,
+    time: np.ndarray,
+    stimulus: Mapping[str, object],
+    *,
+    delay: float | tuple[float, ...] = 0.0,
+) -> SimResult:
+    import numpy as np
+    from monata.sim._digital_bits import gray_code_bit_flip
+
+    initial_settle = float(stimulus.get("initial_settle", 0.0))
+    clock_period = float(stimulus.get("clock_period", stim.period))
+    raw_states = list(stimulus.get("state_sequence", []))
+    states = tuple(_bits_from_text(str(text)) for text in raw_states)
+    transition = max(stim.transition, 0.0)
+    delay_value = float(delay[0] if isinstance(delay, tuple) else delay)
+
     waveforms: dict[str, np.ndarray] = {}
-    for input_index, input_name in enumerate(table.inputs):
+    for input_index, input_name in enumerate(stim.inputs):
         points = []
-        previous = float(states[0][input_index]) * table.vdd
+        previous = float(states[0][input_index]) * stim.vdd
         _append_test_point(points, 0.0, previous)
-        _append_test_point(points, initial_settle, previous)
-        _append_test_point(points, initial_settle + slot_duration, previous)
-        for state_index, state in enumerate(states[1:], start=1):
-            boundary = initial_settle + state_index * slot_duration
-            transition_start = boundary + table.skew_step * input_index
-            level = float(state[input_index]) * table.vdd
-            _append_test_point(points, transition_start, previous)
-            _append_test_point(points, transition_start + table.transition, level)
-            _append_test_point(points, initial_settle + (state_index + 1) * slot_duration, level)
-            previous = level
-        waveforms[input_name] = np.interp(
-            time,
-            [point[0] for point in points],
-            [point[1] for point in points],
-        )
-    for output_index, output_name in enumerate(table.outputs):
+        if len(states) > 1:
+            _append_test_point(points, initial_settle, previous)
+            for cycle, next_state in enumerate(states[1:]):
+                edge = initial_settle + float(cycle) * clock_period
+                next_level = float(next_state[input_index]) * stim.vdd
+                if next_level != previous:
+                    _append_test_point(points, edge, previous)
+                    _append_test_point(points, edge + transition, next_level)
+                _append_test_point(points, edge + clock_period, next_level)
+                previous = next_level
+        waveforms[input_name] = np.interp(time, [p[0] for p in points], [p[1] for p in points])
+    try:
+        flips = gray_code_bit_flip(states)
+    except ValueError:
+        flips = ()
+    for output_index, output_name in enumerate(stim.outputs):
         points = []
-        initial = _sequence_expected_outputs(table, states[0])[output_index]
-        previous = float(initial) * table.vdd
+        initial_exp = _sequence_expected_outputs_for_stim(stim, states[0])[output_index]
+        previous = float(initial_exp) * stim.vdd
         _append_test_point(points, 0.0, previous)
-        _append_test_point(points, initial_settle, previous)
-        _append_test_point(points, initial_settle + slot_duration, previous)
-        for arc_index, arc in enumerate(arcs):
-            next_bit = _sequence_expected_outputs(table, arc.to_inputs)[output_index]
-            level = float(next_bit) * table.vdd
+        for cycle in range(1, len(states)):
+            edge = initial_settle + float(cycle - 1) * clock_period
+            next_exp = _sequence_expected_outputs_for_stim(stim, states[cycle])[output_index]
+            level = float(next_exp) * stim.vdd
             if level == previous:
-                _append_test_point(points, arc.stop, level)
+                _append_test_point(points, edge + clock_period, level)
             else:
-                delay_value = delay[arc_index] if isinstance(delay, tuple) else delay
-                input_crossing = (arc.trigger_start + arc.trigger_end) / 2.0
+                input_crossing = edge + transition / 2.0
                 output_crossing = input_crossing + delay_value
-                _append_test_point(points, arc.trigger_start, previous)
-                _append_test_point(points, output_crossing - table.transition / 2.0, previous)
-                _append_test_point(points, output_crossing + table.transition / 2.0, level)
-                _append_test_point(points, arc.stop, level)
+                _append_test_point(points, edge, previous)
+                _append_test_point(points, output_crossing - transition / 2.0, previous)
+                _append_test_point(points, output_crossing + transition / 2.0, level)
+                _append_test_point(points, edge + clock_period, level)
             previous = level
-        waveforms[output_name] = np.interp(
-            time,
-            [point[0] for point in points],
-            [point[1] for point in points],
-        )
-    return SimResult(
-        status="ok",
-        sweep_var=time,
-        waveforms=waveforms,
-        corner=None,
-        metadata=task.metadata,
-    )
+        waveforms[output_name] = np.interp(time, [p[0] for p in points], [p[1] for p in points])
+    return SimResult(status="ok", sweep_var=time, waveforms=waveforms, corner=None, metadata=task.metadata)
 
 
-def _sequence_expected_outputs(table: DigitalTruthTable, bits: tuple[int, ...]) -> tuple[int, ...]:
+def _sequence_expected_outputs_for_stim(stim: DigitalStimulusConfig, bits: tuple[int, ...]) -> tuple[int, ...]:
+    return tuple(bits[0] & bits[1] for _output in stim.outputs)
+
+
     expected = table.expected_for(bits)
     if expected is not None:
         return expected

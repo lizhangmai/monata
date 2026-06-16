@@ -23,6 +23,7 @@ _DIGITAL_TRANSIENT_OBSERVATION_FIELDS = frozenset({
     "uic",
     "cycles_per_vector",
     "slots_per_task",
+    "clock_period",
 })
 
 
@@ -238,6 +239,7 @@ class DigitalTransientObservation:
     uic: bool = False
     cycles_per_vector: int | None = None
     slots_per_task: int | None = None
+    clock_period: float | None = None
 
     @classmethod
     def resolve(
@@ -248,6 +250,7 @@ class DigitalTransientObservation:
         uic: bool | None = None,
         cycles_per_vector: int | None = None,
         slots_per_task: int | None = None,
+        clock_period: float | None = None,
     ) -> "DigitalTransientObservation":
         if isinstance(observation, DigitalTransientObservation):
             resolved = observation
@@ -260,6 +263,7 @@ class DigitalTransientObservation:
             or uic is not None
             or cycles_per_vector is not None
             or slots_per_task is not None
+            or clock_period is not None
         ):
             resolved = cls(
                 stop=resolved.stop if stop is None else stop,
@@ -274,6 +278,11 @@ class DigitalTransientObservation:
                     if slots_per_task is None
                     else slots_per_task
                 ),
+                clock_period=(
+                    resolved.clock_period
+                    if clock_period is None
+                    else clock_period
+                ),
             )
         resolved._validate()
         return resolved
@@ -286,11 +295,13 @@ class DigitalTransientObservation:
         raw_stop = payload.get("stop")
         raw_cycles = payload.get("cycles_per_vector")
         raw_slots = payload.get("slots_per_task")
+        raw_clock = payload.get("clock_period")
         return cls(
             stop=None if raw_stop is None else float(raw_stop),
             uic=bool(payload.get("uic", False)),
             cycles_per_vector=None if raw_cycles is None else int(raw_cycles),
             slots_per_task=None if raw_slots is None else int(raw_slots),
+            clock_period=None if raw_clock is None else float(raw_clock),
         )
 
     def as_dict(self) -> dict[str, object]:
@@ -299,6 +310,7 @@ class DigitalTransientObservation:
             "uic": self.uic,
             "cycles_per_vector": self.cycles_per_vector,
             "slots_per_task": self.slots_per_task,
+            "clock_period": self.clock_period,
         }
 
     def _validate(self) -> None:
@@ -308,3 +320,5 @@ class DigitalTransientObservation:
             raise ValueError("cycles_per_vector must be positive")
         if self.slots_per_task is not None and self.slots_per_task < 1:
             raise ValueError("slots_per_task must be positive")
+        if self.clock_period is not None and self.clock_period <= 0:
+            raise ValueError("clock_period must be positive")

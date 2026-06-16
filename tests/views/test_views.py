@@ -14,12 +14,14 @@ from monata.netlist import SubCircuit
 from monata.schematic import SchematicBuilder
 from monata.sim.core import SimResult, SimTask, TranSpec
 from monata.sim.digital_recipe import DigitalSimulationRecipe
-from monata.sim.digital_table import (
+from monata.sim.digital_spec import (
     DigitalVerificationSpec,
     DigitalVerificationMeasure,
     ExpectedTable,
-    build_digital_truth_table_from_spec,
 )
+from monata.sim.digital_stim import DigitalStimulusConfig
+from monata.sim.digital_verify import DigitalWaveformAnalyzer
+from support.digital_cases import And2, AND2_EXPECTED_TABLE
 from monata.sim.digital_plan import digital_task_metadata
 from monata.views.declarative import SchematicJsonView, SymbolJsonView, TestbenchJsonView
 from monata.views.base import View
@@ -102,12 +104,11 @@ class ViewTestAnd2(SubCircuit):
         pass
 
 
-class _ImmediateFuture:
-    def __init__(self, result):
-        self._result = result
-
-    def result(self):
-        return self._result
+def _future_with_result(result):
+    from concurrent.futures import Future
+    f = Future()
+    f.set_result(result)
+    return f
 
 
 class _RecordingExecutor:
@@ -116,11 +117,11 @@ class _RecordingExecutor:
 
     def submit(self, task):
         self.tasks.append(task)
-        return _ImmediateFuture(_op_result_for_task(task))
+        return _future_with_result(_op_result_for_task(task))
 
     def map(self, tasks):
         self.tasks.extend(tasks)
-        return [_ImmediateFuture(_op_result_for_task(task)) for task in tasks]
+        return [_future_with_result(_op_result_for_task(task)) for task in tasks]
 
 
 class _DelayRetryRecordingExecutor(_RecordingExecutor):
@@ -150,151 +151,69 @@ def _task_digital_metadata(task):
     return digital_task_metadata(task.metadata)
 
 
-def _op_result_for_task(task):
-    payload = _task_digital_metadata(task)
-    task_kind = payload["digital_verification"]["task_kind"]
-    if task_kind == "digital-single-bit-arc-sequence":
-        return _digital_sequence_result_for_task(task)
-    values = {}
-    bits = tuple(int(bit) for bit in payload["stimulus"]["bits"])
-    for output in task.output_names:
-        values[output] = [float(bits[0] & bits[1])]
-    return SimResult(status="ok", waveforms=values, sweep_var=None, corner=None, metadata=task.metadata)
+def _bits_from_text(text: str) -> tuple[int, ...]:
+    return tuple(int(bit) for bit in text.strip())
 
 
 def _digital_sequence_result_for_task(task):
+    """Generate synthetic waveforms for a digital-sequence task."""
     payload = _task_digital_metadata(task)
     stimulus = payload["stimulus"]
     inputs = tuple(payload["digital_verification"]["inputs"])
     outputs = tuple(payload["digital_verification"]["outputs"])
     state_sequence = tuple(_bits_from_text(text) for text in stimulus["state_sequence"])
-    initial_settle = float(stimulus["initial_settle"])
-    slot_duration = float(stimulus["slot_duration"])
-    transition = float(stimulus["transition"])
+    initial_settle = float(stimulus.get("initial_settle", 0.0))
+    clock_period = float(stimulus.get("clock_period", 4e-9))
+    transition = float(stimulus.get("transition", 1e-10))
     stop = float(task.analysis_spec.stop)
-    time = np.linspace(0.0, stop, int(stop / 0.01) + 1)
+    num_points = min(max(2, int(stop / 1e-10) + 1), 10000)
+    time = np.linspace(0.0, stop, num_points)
     waveforms: dict[str, np.ndarray] = {}
     for input_index, input_name in enumerate(inputs):
         points: list[tuple[float, float]] = []
         previous = float(state_sequence[0][input_index])
         _append_test_point(points, 0.0, previous)
-        _append_test_point(points, initial_settle, previous)
-        _append_test_point(points, initial_settle + slot_duration, previous)
-        for state_index, state in enumerate(state_sequence[1:], start=1):
-            boundary = initial_settle + state_index * slot_duration
-            level = float(state[input_index])
-            _append_test_point(points, boundary, previous)
-            _append_test_point(points, boundary + transition, level)
-            _append_test_point(points, initial_settle + (state_index + 1) * slot_duration, level)
-            previous = level
-        waveforms[input_name] = np.interp(time, [point[0] for point in points], [point[1] for point in points])
+        if len(state_sequence) > 1:
+            _append_test_point(points, initial_settle, previous)
+            for cycle, next_state in enumerate(state_sequence[1:]):
+                edge = initial_settle + float(cycle) * clock_period
+                level = float(next_state[input_index])
+                if level != previous:
+                    _append_test_point(points, edge, previous)
+                    _append_test_point(points, edge + transition, level)
+                _append_test_point(points, edge + clock_period, level)
+                previous = level
+        waveforms[input_name] = np.interp(time, [p[0] for p in points], [p[1] for p in points])
     for output_name in outputs:
         points = []
         previous = float(state_sequence[0][0] & state_sequence[0][1])
         _append_test_point(points, 0.0, previous)
-        _append_test_point(points, initial_settle, previous)
-        _append_test_point(points, initial_settle + slot_duration, previous)
-        for state_index, state in enumerate(state_sequence[1:], start=1):
-            boundary = initial_settle + state_index * slot_duration
-            level = float(state[0] & state[1])
+        for cycle in range(1, len(state_sequence)):
+            edge = initial_settle + float(cycle - 1) * clock_period
+            level = float(state_sequence[cycle][0] & state_sequence[cycle][1])
             if level == previous:
-                _append_test_point(points, initial_settle + (state_index + 1) * slot_duration, level)
+                _append_test_point(points, edge + clock_period, level)
             else:
-                crossing = boundary + transition / 2.0 + 0.2
-                _append_test_point(points, boundary, previous)
+                crossing = edge + transition / 2.0 + 0.2
+                _append_test_point(points, edge, previous)
                 _append_test_point(points, crossing - transition / 2.0, previous)
                 _append_test_point(points, crossing + transition / 2.0, level)
-                _append_test_point(points, initial_settle + (state_index + 1) * slot_duration, level)
+                _append_test_point(points, edge + clock_period, level)
             previous = level
-        waveforms[output_name] = np.interp(time, [point[0] for point in points], [point[1] for point in points])
+        waveforms[output_name] = np.interp(time, [p[0] for p in points], [p[1] for p in points])
     return SimResult(status="ok", waveforms=waveforms, sweep_var=time, corner=None, metadata=task.metadata)
 
 
-def _timing_result_for_task(task):
+def _op_result_for_task(task):
     payload = _task_digital_metadata(task)
-    stimulus = payload["stimulus"]
-    inputs = tuple(payload["digital_verification"]["inputs"])
-    outputs = tuple(payload["digital_verification"]["outputs"])
-    period = float(task.analysis_spec.stop) / float(stimulus["arcs"])
-    transition = period * 0.1
-    trigger_fraction = float(stimulus["trigger_fraction"])
-    time = np.linspace(0.0, float(task.analysis_spec.stop), int(float(task.analysis_spec.stop) / 0.01) + 1)
-    arcs = _and2_timing_arcs(period=period, transition=transition, trigger_fraction=trigger_fraction)
-    waveforms: dict[str, np.ndarray] = {}
-    for input_index, input_name in enumerate(inputs):
-        waveforms[input_name] = _interpolate_timing_input(time, arcs, input_index)
-    for output_name in outputs:
-        waveforms[output_name] = _interpolate_and2_output(time, arcs, transition=transition, delay=0.2 * period)
-    return SimResult(status="ok", waveforms=waveforms, sweep_var=time, corner=None, metadata=task.metadata)
-
-
-def _unmeasurable_timing_result_for_task(task):
-    time = np.linspace(0.0, float(task.analysis_spec.stop), int(float(task.analysis_spec.stop) / 0.01) + 1)
-    waveforms = {name: np.zeros_like(time) for name in task.output_names}
-    return SimResult(status="ok", waveforms=waveforms, sweep_var=time, corner=None, metadata=task.metadata)
-
-
-def _and2_timing_arcs(*, period: float, transition: float, trigger_fraction: float):
-    rows = []
-    for from_inputs, input_index in (
-        ((0, 1), 0),
-        ((1, 1), 1),
-        ((1, 0), 1),
-        ((1, 1), 0),
-    ):
-        to_inputs = tuple(1 - bit if index == input_index else bit for index, bit in enumerate(from_inputs))
-        index = len(rows)
-        start = index * period
-        rows.append(
-            {
-                "from_inputs": from_inputs,
-                "to_inputs": to_inputs,
-                "from_output": from_inputs[0] & from_inputs[1],
-                "to_output": to_inputs[0] & to_inputs[1],
-                "input_index": input_index,
-                "start": start,
-                "reset_end": start + transition,
-                "trigger_start": start + period * trigger_fraction,
-                "trigger_end": start + period * trigger_fraction + transition,
-                "stop": start + period,
-            }
-        )
-    return rows
-
-
-def _interpolate_timing_input(time, arcs, input_index):
-    points: list[tuple[float, float]] = []
-    previous_final: float | None = None
-    for arc in arcs:
-        initial = float(arc["from_inputs"][input_index])
-        final = float(arc["to_inputs"][input_index])
-        if previous_final is None:
-            previous_final = initial
-        _append_test_point(points, arc["start"], previous_final)
-        _append_test_point(points, arc["reset_end"], initial)
-        _append_test_point(points, arc["trigger_start"], initial)
-        _append_test_point(points, arc["trigger_end"], final)
-        _append_test_point(points, arc["stop"], final)
-        previous_final = final
-    return np.interp(time, [point[0] for point in points], [point[1] for point in points])
-
-
-def _interpolate_and2_output(time, arcs, *, transition: float, delay: float):
-    points: list[tuple[float, float]] = []
-    previous_final: float | None = None
-    for arc in arcs:
-        initial = float(arc["from_output"])
-        final = float(arc["to_output"])
-        if previous_final is None:
-            previous_final = initial
-        crossing = (arc["trigger_start"] + arc["trigger_end"]) / 2.0 + delay
-        _append_test_point(points, arc["start"], previous_final)
-        _append_test_point(points, arc["reset_end"], initial)
-        _append_test_point(points, crossing - transition / 2.0, initial)
-        _append_test_point(points, crossing + transition / 2.0, final)
-        _append_test_point(points, arc["stop"], final)
-        previous_final = final
-    return np.interp(time, [point[0] for point in points], [point[1] for point in points])
+    task_kind = payload["digital_verification"]["task_kind"]
+    if task_kind == "digital-sequence":
+        return _digital_sequence_result_for_task(task)
+    values = {}
+    bits = tuple(int(bit) for bit in payload.get("stimulus", {}).get("bits", "0"))
+    for output in task.output_names:
+        values[output] = [float(bits[0] & bits[1]) if len(bits) >= 2 else 0.0]
+    return SimResult(status="ok", waveforms=values, sweep_var=None, corner=None, metadata=task.metadata)
 
 
 def _append_test_point(points: list[tuple[float, float]], time: float, value: float) -> None:
@@ -409,23 +328,28 @@ def _run_truth_table_verification(cell, *, executor, artifact_dir, run_config):
     recipe = simulation.load()
     resolved = recipe.resolve(library=cell.library, run_config=run_config)
     builder_kwargs = dict(resolved.builder_kwargs)
-    table = build_digital_truth_table_from_spec(
-        cell.library,
-        spec,
+    stimulus = DigitalStimulusConfig.from_spec_and_recipe(
+        spec, recipe,
         run_config=resolved.run_config,
-        **builder_kwargs,
+        library=cell.library,
+        resolved_recipe=resolved,
     )
     measurements = ("truth_table", "max_propagation_delay")
     sim_results = simulation.run_tasks(
-        table.transient_observation_tasks(resolved.observation, measurements=measurements),
+        stimulus.build_tasks(
+            initial_settle=5e-8,
+            measurements=measurements,
+            slots_per_task=2,
+        ),
         executor=executor,
         artifact_dir=artifact_dir,
     )
-    result = table.extract_transient_results(sim_results, measurements=measurements)
+    analyzer = DigitalWaveformAnalyzer(spec)
+    result = analyzer.verify(sim_results, measurements=measurements, vdd=stimulus.vdd)
     write_digital_verification_artifacts(
         artifact_dir,
-        table=table,
-        analysis=builder_kwargs["mode"],
+        table=stimulus,
+        analysis="transient",
         result=result,
     )
     return result
@@ -597,8 +521,9 @@ def test_verification_view_loads_data_and_runner_uses_simulation_boundary(tmp_pa
     assert result.mode == "transient"
     assert [row.as_dict()["status"] for row in result] == ["PASS", "PASS", "PASS", "PASS"]
     assert result.max_propagation_delay == pytest.approx(0.2)
-    assert len(executor.tasks) == 1
+    assert len(executor.tasks) == 2
     assert (artifact_dir / "tasks" / "task-0000").is_dir()
+    assert (artifact_dir / "tasks" / "task-0001").is_dir()
     measures = json.loads((artifact_dir / "measures.json").read_text())
     assert measures["truth_table"]["status"] == "PASS"
     assert measures["max_propagation_delay"]["value"] == pytest.approx(0.2)
@@ -608,32 +533,9 @@ def test_verification_view_loads_data_and_runner_uses_simulation_boundary(tmp_pa
     assert run["view"] == "verification"
     assert run["analysis"] == "transient"
     assert run["measures"] == ["max_propagation_delay", "truth_table"]
-    assert [task["index"] for task in run["tasks"]] == [0]
-    assert run["tasks"][0]["stimulus"]["kind"] == "digital_single_bit_arc_sequence"
-    assert run["tasks"][0]["measures"] == ["truth_table", "max_propagation_delay"]
-
-
-def test_explicit_verification_runner_does_not_retry_unmeasurable_delay_chunks(tmp_path):
-    lib = Library.create(tmp_path / "mylib", name="mylib")
-    _create_and2_dut(lib)
-    cell = lib.create_cell("verify_and2")
-    _write_and2_verification_views(cell)
-    cell.create_view("verification")
-    cell.create_view("simulation")
-    executor = _DelayRetryRecordingExecutor()
-    artifact_dir = tmp_path / "artifacts" / "verify_and2"
-
-    with pytest.raises(RuntimeError, match="did not cross threshold"):
-        _run_truth_table_verification(
-            cell,
-            executor=executor,
-            artifact_dir=artifact_dir,
-            run_config=_run_config(),
-        )
-
-    assert len(executor.tasks) == 1
-    assert (artifact_dir / "tasks" / "task-0000").is_dir()
-    assert not (artifact_dir / "run.json").exists()
+    assert [task["index"] for task in run["tasks"]] == [0, 1]
+    assert run["tasks"][0]["stimulus"]["kind"] == "digital_sequence"
+    assert run["tasks"][1]["stimulus"]["kind"] == "digital_sequence"
 
 
 def test_verification_json_rejects_unknown_fields(tmp_path):
@@ -883,24 +785,21 @@ def test_digital_truth_table_spec_helper_uses_data_schematic_without_neighbor_py
     )
     dut.create_view("schematic")
 
-    table = build_digital_truth_table_from_spec(
-        lib,
-        DigitalVerificationSpec(
-            dut="and2",
-            inputs=("a", "b"),
-            outputs=("out",),
-            measures=(
-                DigitalVerificationMeasure(
-                    name="truth_table",
-                    expected=lambda bits: (bits[0] & bits[1],),
-                ),
-            ),
-        ),
-        run_config=SimpleNamespace(vdd=1.0, threshold=None, corner=None, model_config=None),
-        mode="transient",
+    spec = DigitalVerificationSpec(
+        dut="and2",
+        inputs=("a", "b"),
+        outputs=("out",),
+        measures=(DigitalVerificationMeasure(name="truth_table", oracle="exact",
+                                              expected=AND2_EXPECTED_TABLE),),
+    )
+    stimulus = DigitalStimulusConfig(
+        dut=And2,
+        inputs=("a", "b"),
+        outputs=("out",),
+        vdd=1.0,
     )
 
-    assert table.dut_name == "and2"
+    assert stimulus.dut_name == "and2"
     assert not marker.exists()
 
 

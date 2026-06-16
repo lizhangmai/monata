@@ -3,18 +3,18 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 import json
 from pathlib import Path
+from typing import Any
 
 from monata.sim.digital_plan import digital_task_metadata
 from monata.sim.digital_results import DigitalTruthTableResult
-from monata.sim.digital_table import DigitalTruthTable, DigitalTruthTableMode
 from monata.sim.results import SimResult
 
 
 def write_digital_verification_artifacts(
     artifact_dir: str | Path | None,
     *,
-    table: DigitalTruthTable,
-    analysis: DigitalTruthTableMode,
+    table: Any = None,
+    analysis: str = "transient",
     result: DigitalTruthTableResult,
     extra_sim_results: Iterable[SimResult] = (),
 ) -> None:
@@ -27,11 +27,12 @@ def write_digital_verification_artifacts(
         json.dumps(measures, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+    dut_name = getattr(table, "dut_name", "unknown") if table is not None else "unknown"
     run_payload = {
         "schema": "monata-digital-verification-run-v1",
         "view": "verification",
         "analysis": analysis,
-        "dut": table.dut_name,
+        "dut": dut_name,
         "measures": sorted(measures),
         "tasks": _artifact_task_payloads(result, extra_sim_results=extra_sim_results),
     }

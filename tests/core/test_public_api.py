@@ -292,12 +292,11 @@ PUBLIC_MODULE_CONTRACTS = (
     ModuleContract("monata.sim.analysis_spec", ANALYSIS_SPEC_EXPORTS),
     ModuleContract("monata.sim.digital_results", DIGITAL_RESULTS_EXPORTS),
     ModuleContract(
-        "monata.sim.digital_table",
-        forbidden_attrs=frozenset({
-            "DigitalPropagationDelayRow",
-            "DigitalTruthTableResult",
-            "DigitalTruthTableRow",
-        }),
+        "monata.sim.digital_stim",
+        exact_all=False,
+    ),
+    ModuleContract(
+        "monata.sim.digital_verify",
         exact_all=False,
     ),
     ModuleContract("monata.sim.vector_names", VECTOR_NAMES_EXPORTS),
@@ -753,8 +752,8 @@ def test_digital_task_and_extract_layers_use_explicit_plan_boundary():
     )
 
     for relative_path in (
-        "src/monata/sim/digital_tasks.py",
-        "src/monata/sim/digital_extract.py",
+        "src/monata/sim/digital_stim.py",
+        "src/monata/sim/digital_verify.py",
     ):
         source = (project_root / relative_path).read_text()
         for name in private_table_protocols:

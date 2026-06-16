@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from monata.sim.digital_table import DigitalVerificationSpec, ExpectedTable
+from monata.sim.digital_spec import DigitalVerificationSpec, ExpectedTable
 from monata.views.base import View
 from monata.views.path_safety import read_cell_json_mapping, resolve_cell_relative_path
 
