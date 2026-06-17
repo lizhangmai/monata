@@ -63,13 +63,10 @@ def resolve_digital_model_flow(
 ) -> ResolvedModelFlow | None:
     if projection_library is None or corner is None or model_config is None:
         return None
-    techlib_name = getattr(corner, "techlib", None)
-    if not techlib_name:
+    resolver = getattr(projection_library, "resolve_model_flow", None)
+    if not callable(resolver):
         return None
-    from monata.techlib.registry import TechlibRegistry
-
-    techlib = TechlibRegistry()[techlib_name]
-    return techlib.resolve_model_flow(
+    return resolver(
         corner,
         model_config=model_config,
         simulator_profile=model_config.simulator_profile,

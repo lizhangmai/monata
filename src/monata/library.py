@@ -173,6 +173,28 @@ class Library:
     ) -> "OperatingCorner | None":
         return self.pdk_projection_context().resolve_pdk_corner(corner=corner, registry=registry)
 
+    def resolve_model_flow(
+        self,
+        corner: "CornerLike" = None,
+        *,
+        simulator_profile: Any = None,
+        model_config: Any = None,
+        registry: Any = None,
+    ):
+        resolved_corner = self.resolve_pdk_corner(corner=corner, registry=registry)
+        if resolved_corner is None or not getattr(resolved_corner, "techlib", None):
+            return None
+        if registry is None:
+            from monata.techlib.registry import TechlibRegistry
+
+            registry = TechlibRegistry()
+        techlib = registry[resolved_corner.techlib]
+        return techlib.resolve_model_flow(
+            resolved_corner,
+            simulator_profile=simulator_profile,
+            model_config=model_config,
+        )
+
     @property
     def node_type(self):
         return self._load_config()["technology"].get("node_type")
