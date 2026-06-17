@@ -9,13 +9,14 @@ from typing import Any, Callable, Iterable, Mapping
 from monata.corner import CornerLike, OperatingCorner, coerce_operating_corner
 from monata.models.flow import ResolvedModelFlow, SimulationModelConfig
 from monata.netlist import Circuit, SubCircuit
-from monata.sim.digital_claims import (
+from monata.digital.claims import (
     DigitalComparator,
     DigitalOutputTolerance,
     DigitalVerificationClaim,
 )
-from monata.sim.digital_projection import PdkProjectionOwner
-from monata.sim.digital_spec import ExpectedLike, ExpectedTable
+from monata.digital.model_context import resolve_digital_model_flow
+from monata.digital.projection import PdkProjectionOwner
+from monata.digital.spec import ExpectedLike, ExpectedTable
 from monata.sim.task import SimArtifactOptions
 
 
@@ -109,7 +110,11 @@ class _DigitalTruthTableConfig:
         resolved_metadata.setdefault("oracle", resolved_claim.oracle)
         resolved_metadata.setdefault("claim", resolved_claim.as_dict())
         resolved_corner = _resolve_digital_corner(library, corner)
-        model_flow = _resolve_model_flow(library, resolved_corner, model_config)
+        model_flow = resolve_digital_model_flow(
+            projection_library=library,
+            corner=resolved_corner,
+            model_config=model_config,
+        )
         if model_flow is not None:
             resolved_metadata.setdefault("model_flow", model_flow.to_dict())
         return cls(
@@ -172,26 +177,6 @@ class _DigitalTruthTableConfig:
                 input_width=len(self.inputs),
                 output_width=len(self.outputs),
             )
-
-
-def _resolve_model_flow(
-    library: PdkProjectionOwner | None,
-    corner: OperatingCorner | None,
-    model_config: SimulationModelConfig | None,
-) -> ResolvedModelFlow | None:
-    if library is None or corner is None or model_config is None:
-        return None
-    techlib_name = getattr(corner, "techlib", None)
-    if not techlib_name:
-        return None
-    from monata.techlib.registry import TechlibRegistry
-
-    techlib = TechlibRegistry()[techlib_name]
-    return techlib.resolve_model_flow(
-        corner,
-        model_config=model_config,
-        simulator_profile=model_config.simulator_profile,
-    )
 
 
 def _resolve_digital_corner(

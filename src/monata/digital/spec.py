@@ -8,8 +8,8 @@ from pathlib import Path
 from typing import Any, Literal, cast
 import json
 
-from monata.sim._digital_bits import _coerce_bits, _expected_row_parts, bit_combinations, bits_to_text
-from monata.sim.digital_claims import DigitalVerificationClaim, ExpectedFn
+from monata.digital.bits import _coerce_bits, _expected_row_parts, bit_combinations, bits_to_text
+from monata.digital.claims import DigitalVerificationClaim, ExpectedFn
 
 
 __all__ = [

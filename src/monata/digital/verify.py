@@ -3,7 +3,7 @@
 This module owns the *verification* side of the digital pipeline: it
 takes simulation waveforms and extracts truth-table rows, propagation
 delays, and pass/fail results.  It has no knowledge of how the
-waveforms were produced — that concern lives in ``digital_stim.py``.
+waveforms were produced — that concern lives in ``monata.digital.stim``.
 """
 
 from __future__ import annotations
@@ -15,22 +15,17 @@ from typing import Any, Literal
 import numpy as np
 
 from monata.measure.time_domain import cross
-from monata.sim._digital_bits import bits_to_text, gray_code_bit_flip
-from monata.sim.digital_claims import (
-    DigitalComparisonContext,
-    DigitalComparisonResult,
-    DigitalOutputTolerance,
-)
-from monata.sim.digital_plan import (
+from monata.digital.bits import bits_to_text, gray_code_bit_flip
+from monata.digital.plan import (
     digital_stimulus_metadata,
     sim_result_has_digital_task_metadata,
 )
-from monata.sim.digital_results import (
+from monata.digital.results import (
     DigitalPropagationDelayRow,
     DigitalTruthTableResult,
     DigitalTruthTableRow,
 )
-from monata.sim.digital_spec import (
+from monata.digital.spec import (
     DigitalMeasurementName,
     DigitalVerificationSpec,
 )
@@ -180,14 +175,18 @@ def _digital_sequence_results(
                 f"final_time={float(time[-1])}, expected={expected_stop}"
             )
 
-        sample_times = _build_sample_times(len(states), initial_settle, clock_period, sample_fraction)
-        batched = _batch_interp_samples(time, sim_result.waveforms, sample_times, spec.outputs)
         for cycle, bits in enumerate(states):
-            row_samples = batched[cycle]
-            actual_values = tuple(int(row_samples[out] > vdd / 2.0) for out in spec.outputs)
-            row = _row(
-                spec, bits, actual_values, spec.expected,
-                samples=row_samples, sample_time=sample_times[cycle],
+            if cycle == 0:
+                window_start = 0.0
+                window_stop = initial_settle
+            else:
+                window_start = initial_settle + float(cycle - 1) * clock_period
+                window_stop = initial_settle + float(cycle) * clock_period
+            row = _functional_window_row(
+                spec, bits, time, sim_result.waveforms,
+                threshold=vdd / 2.0,
+                start=window_start,
+                stop=window_stop,
             )
             existing = rows_by_bits.get(bits)
             if existing is not None and existing.actual != row.actual:
@@ -252,12 +251,6 @@ def _propagation_delay_rows_for_sequence(
         to_outputs = spec.expected(to_state) if spec.expected is not None else None
         if from_outputs is None or to_outputs is None:
             continue
-        output_indices = tuple(
-            i for i, (before, after) in enumerate(zip(from_outputs, to_outputs))
-            if before != after
-        )
-        if not output_indices:
-            continue
         clock_rising_edge = initial_settle + float(cycle) * clock_period
         input_name = spec.inputs[input_index]
         to_bit = to_state[input_index]
@@ -275,25 +268,34 @@ def _propagation_delay_rows_for_sequence(
         # clock frequency.  Increase clock_period in the recipe for
         # slower circuits instead of widening this window.
         next_input_edge = initial_settle + float(cycle + 1) * clock_period
-        output_stop = min(input_crossing + clock_period, next_input_edge, float(time[-1]))
-        for output_index in output_indices:
-            output_name = spec.outputs[output_index]
-            output_edge: Literal["rise", "fall"] = "rise" if to_outputs[output_index] else "fall"
-            output_crossing = _first_threshold_crossing(
-                time, sim_result.waveforms[output_name],
-                threshold=threshold, edge=output_edge,
-                start=input_crossing, stop=output_stop,
-                signal_name=output_name,
+        output_stop = min(next_input_edge, float(time[-1]))
+        output_settles = tuple(
+            (
+                _functional_settle_time(
+                    time,
+                    sim_result.waveforms[output_name],
+                    expected_bit=to_outputs[output_index],
+                    threshold=threshold,
+                    start=input_crossing,
+                    stop=output_stop,
+                    signal_name=output_name,
+                ),
+                output_index,
+                output_name,
             )
-            rows.append(
-                DigitalPropagationDelayRow(
-                    from_inputs=from_state, to_inputs=to_state,
-                    input_name=input_name, output_name=output_name,
-                    input_edge=input_edge, output_edge=output_edge,
-                    input_crossing=input_crossing, output_crossing=output_crossing,
-                    delay=output_crossing - input_crossing,
-                )
+            for output_index, output_name in enumerate(spec.outputs)
+        )
+        output_settle, output_index, output_name = max(output_settles, key=lambda item: item[0])
+        output_edge: Literal["rise", "fall"] = "rise" if to_outputs[output_index] else "fall"
+        rows.append(
+            DigitalPropagationDelayRow(
+                from_inputs=from_state, to_inputs=to_state,
+                input_name=input_name, output_name=output_name,
+                input_edge=input_edge, output_edge=output_edge,
+                input_crossing=input_crossing, output_crossing=output_settle,
+                delay=output_settle - clock_rising_edge,
             )
+        )
     return tuple(rows)
 
 
@@ -312,6 +314,45 @@ def _row(
         samples=samples, sample_time=sample_time,
         claim=None, comparison=None,
     )
+
+
+def _functional_window_row(
+    spec: DigitalVerificationSpec,
+    bits: tuple[int, ...],
+    time: np.ndarray,
+    waveforms: Mapping[str, np.ndarray],
+    *,
+    threshold: float,
+    start: float,
+    stop: float,
+) -> DigitalTruthTableRow:
+    expected = spec.expected(bits) if spec.expected is not None else None
+    sample_time = stop
+    samples = {
+        output: float(np.interp(sample_time, time, np.asarray(waveforms[output], dtype=float).reshape(-1)))
+        for output in spec.outputs
+    }
+    sampled_actual = tuple(int(samples[output] > threshold) for output in spec.outputs)
+    if expected is None:
+        return _row(spec, bits, sampled_actual, spec.expected, samples=samples, sample_time=sample_time)
+
+    settled = True
+    for output_index, output in enumerate(spec.outputs):
+        try:
+            _functional_settle_time(
+                time,
+                waveforms[output],
+                expected_bit=expected[output_index],
+                threshold=threshold,
+                start=start,
+                stop=stop,
+                signal_name=output,
+            )
+        except RuntimeError:
+            settled = False
+            break
+    actual = expected if settled else sampled_actual
+    return _row(spec, bits, actual, spec.expected, samples=samples, sample_time=sample_time)
 
 
 def _build_sample_times(
@@ -363,3 +404,52 @@ def _first_threshold_crossing(
             f"{signal_name} did not cross threshold={threshold} on {edge} edge "
             f"between {start} and {stop}"
         ) from exc
+
+
+def _functional_settle_time(
+    time: np.ndarray,
+    values,
+    *,
+    expected_bit: int,
+    threshold: float,
+    start: float,
+    stop: float,
+    signal_name: str,
+) -> float:
+    if stop < start:
+        raise RuntimeError(f"{signal_name} settle window is empty: start={start}, stop={stop}")
+    value_array = np.asarray(values, dtype=float).reshape(-1)
+    if len(time) != len(value_array):
+        raise RuntimeError(f"{signal_name} waveform length does not match sweep vector")
+    interior = time[(time > start) & (time < stop)]
+    window_time = np.concatenate(([start], interior, [stop]))
+    window_values = np.interp(window_time, time, value_array)
+    correct = window_values > threshold if expected_bit else window_values <= threshold
+    suffix_correct = np.logical_and.accumulate(correct[::-1])[::-1]
+    indexes = np.flatnonzero(suffix_correct)
+    if not len(indexes):
+        expected = "high" if expected_bit else "low"
+        raise RuntimeError(
+            f"{signal_name} did not settle {expected} between {start} and {stop}"
+        )
+    index = int(indexes[0])
+    if index == 0:
+        return float(start)
+    before_time = float(window_time[index - 1])
+    after_time = float(window_time[index])
+    before_value = float(window_values[index - 1])
+    after_value = float(window_values[index])
+    edge: Literal["rise", "fall"] = "rise" if expected_bit else "fall"
+    if before_time == after_time or before_value == after_value:
+        return after_time
+    try:
+        return float(
+            cross(
+                np.asarray([before_time, after_time]),
+                np.asarray([before_value, after_value]),
+                threshold=threshold,
+                edge="rising" if edge == "rise" else "falling",
+            )
+        )
+    except ValueError:
+        return after_time

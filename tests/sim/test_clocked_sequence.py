@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 from monata.netlist import render_ngspice
-from monata.sim._digital_bits import (
+from monata.sim.core import SimResult
+from monata.digital.bits import (
     gray_code_bit_flip,
     gray_code_chunks,
     gray_code_sequence,
 )
-from monata.sim.digital_verify import DigitalWaveformAnalyzer
+from monata.digital.verify import DigitalWaveformAnalyzer
 
 from support.digital_cases import (
     And2,
@@ -151,7 +153,100 @@ def test_clocked_extraction_delay_from_clocked_sequence():
         measurements=("max_propagation_delay",), vdd=1.0, sample_fraction=0.9,
     )
     assert extracted.max_propagation_delay is not None
-    assert extracted.max_propagation_delay == pytest.approx(2e-10)
+    assert extracted.max_propagation_delay == pytest.approx(3e-10)
+
+
+def test_clocked_extraction_delay_requires_functional_settle():
+    stim = _make_stimulus(And2, inputs=("a", "b"), outputs=("out",),
+                          period=4e-9, step=1e-11, transition=2e-10)
+    tasks = stim.build_tasks(
+        initial_settle=1e-8,
+        measurements=("truth_table", "max_propagation_delay"),
+        clock_period=4e-9,
+    )
+    base = _sequence_result_for_task(stim, tasks[0], delay=2e-10)
+    time = np.asarray(base.sweep_var)
+    initial_settle = 1e-8
+    period = 4e-9
+    input_crossing = initial_settle + period + stim.transition / 2.0
+
+    points = (
+        (0.0, 0.0),
+        (input_crossing + 0.1e-9, 0.0),
+        (input_crossing + 0.3e-9, 1.0),
+        (input_crossing + 0.7e-9, 1.0),
+        (input_crossing + 0.9e-9, 0.0),
+        (input_crossing + 1.3e-9, 0.0),
+        (input_crossing + 1.7e-9, 1.0),
+        (initial_settle + 2.0 * period + 0.1e-9, 1.0),
+        (initial_settle + 2.0 * period + 0.3e-9, 0.0),
+        (float(time[-1]), 0.0),
+    )
+    waveforms = dict(base.waveforms)
+    waveforms["out"] = np.interp(time, [p[0] for p in points], [p[1] for p in points])
+    result = SimResult(
+        status="ok",
+        sweep_var=time,
+        waveforms=waveforms,
+        corner=None,
+        metadata=base.metadata,
+    )
+
+    analyzer = DigitalWaveformAnalyzer(_make_spec(And2))
+    extracted = analyzer.verify(
+        [result],
+        measurements=("truth_table", "max_propagation_delay"),
+        vdd=1.0,
+        sample_fraction=0.9,
+    )
+
+    assert extracted.failed == []
+    assert extracted.max_propagation_delay is not None
+    assert extracted.max_propagation_delay == pytest.approx(1.6e-9)
+
+
+def test_clocked_truth_table_uses_functional_settle_window():
+    stim = _make_stimulus(And2, inputs=("a", "b"), outputs=("out",),
+                          period=4e-9, step=1e-11, transition=2e-10)
+    tasks = stim.build_tasks(
+        initial_settle=1e-8,
+        measurements=("truth_table", "max_propagation_delay"),
+        clock_period=4e-9,
+    )
+    base = _sequence_result_for_task(stim, tasks[0], delay=2e-10)
+    time = np.asarray(base.sweep_var)
+    initial_settle = 1e-8
+    period = 4e-9
+    input_crossing = initial_settle + period + stim.transition / 2.0
+
+    points = (
+        (0.0, 0.0),
+        (input_crossing + 3.5e-9, 0.0),
+        (input_crossing + 3.7e-9, 1.0),
+        (initial_settle + 2.0 * period, 1.0),
+        (initial_settle + 2.0 * period + 0.3e-9, 0.0),
+        (float(time[-1]), 0.0),
+    )
+    waveforms = dict(base.waveforms)
+    waveforms["out"] = np.interp(time, [p[0] for p in points], [p[1] for p in points])
+    result = SimResult(
+        status="ok",
+        sweep_var=time,
+        waveforms=waveforms,
+        corner=None,
+        metadata=base.metadata,
+    )
+
+    analyzer = DigitalWaveformAnalyzer(_make_spec(And2))
+    extracted = analyzer.verify(
+        [result],
+        measurements=("truth_table", "max_propagation_delay"),
+        vdd=1.0,
+        sample_fraction=0.9,
+    )
+
+    assert extracted.failed == []
+    assert extracted.max_propagation_delay == pytest.approx(3.7e-9)
 
 
 def test_clocked_chunks_merge_consistently():
@@ -193,7 +288,7 @@ def test_run_transient_produces_valid_result():
 
 def _make_spec(dut_cls):
     """Build a minimal verification spec for test purposes."""
-    from monata.sim.digital_spec import DigitalVerificationSpec, DigitalVerificationMeasure
+    from monata.digital.spec import DigitalVerificationSpec, DigitalVerificationMeasure
     return DigitalVerificationSpec(
         dut=dut_cls.NAME,
         inputs=("a", "b"),

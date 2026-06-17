@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from monata.sim.core import LocalExecutor, SimArtifactOptions, SimResult, SimTask
-from monata.sim.digital_recipe import DigitalSimulationRecipe
+from monata.digital.recipe import DigitalSimulationRecipe
 from monata.views.base import View
 from monata.views.path_safety import read_cell_json_mapping
 

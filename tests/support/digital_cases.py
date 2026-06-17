@@ -17,11 +17,11 @@ from monata.circuits import (
 from monata.corner import OperatingCorner
 from monata.netlist import SubCircuit
 from monata.sim.core import SimResult, SimTask, TranSpec
-from monata.sim.digital_claims import (
+from monata.digital.claims import (
     DigitalVerificationClaim,
 )
-from monata.sim.digital_spec import ExpectedTable
-from monata.sim.digital_stim import DigitalStimulusConfig
+from monata.digital.spec import ExpectedTable
+from monata.digital.stim import DigitalStimulusConfig
 
 class And2(SubCircuit):
     NAME = "and2"
@@ -376,7 +376,6 @@ def _clocked_sequence_waveforms(
     delay: float | tuple[float, ...] = 0.0,
 ) -> SimResult:
     import numpy as np
-    from monata.sim._digital_bits import gray_code_bit_flip
 
     initial_settle = float(stimulus.get("initial_settle", 0.0))
     clock_period = float(stimulus.get("clock_period", stim.period))
@@ -401,10 +400,6 @@ def _clocked_sequence_waveforms(
                 _append_test_point(points, edge + clock_period, next_level)
                 previous = next_level
         waveforms[input_name] = np.interp(time, [p[0] for p in points], [p[1] for p in points])
-    try:
-        flips = gray_code_bit_flip(states)
-    except ValueError:
-        flips = ()
     for output_index, output_name in enumerate(stim.outputs):
         points = []
         initial_exp = _sequence_expected_outputs_for_stim(stim, states[0])[output_index]
@@ -430,9 +425,3 @@ def _clocked_sequence_waveforms(
 
 def _sequence_expected_outputs_for_stim(stim: DigitalStimulusConfig, bits: tuple[int, ...]) -> tuple[int, ...]:
     return tuple(bits[0] & bits[1] for _output in stim.outputs)
-
-
-    expected = table.expected_for(bits)
-    if expected is not None:
-        return expected
-    return tuple(bits[0] & bits[1] for _output in table.outputs)

@@ -4,13 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
-from monata.sim._digital_bits import bit_combinations, gray_code_chunks, gray_code_sequence
+from monata.digital.bits import bit_combinations, gray_code_chunks, gray_code_sequence
 from monata.sim.results import SimResult
-
-if TYPE_CHECKING:
-    from monata.sim.digital_stim import DigitalStimulusConfig as _TableLike
 
 
 DIGITAL_TASK_METADATA_SCHEMA = "monata.sim.digital-task.v1"

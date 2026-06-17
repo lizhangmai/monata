@@ -13,19 +13,19 @@ from monata.library import Library
 from monata.netlist import SubCircuit
 from monata.schematic import SchematicBuilder
 from monata.sim.core import SimResult, SimTask, TranSpec
-from monata.sim.digital_recipe import DigitalSimulationRecipe
-from monata.sim.digital_spec import (
+from monata.digital.recipe import DigitalSimulationRecipe
+from monata.digital.spec import (
     DigitalVerificationSpec,
-    DigitalVerificationMeasure,
     ExpectedTable,
 )
-from monata.sim.digital_stim import DigitalStimulusConfig
-from monata.sim.digital_verify import DigitalWaveformAnalyzer
-from support.digital_cases import And2, AND2_EXPECTED_TABLE
-from monata.sim.digital_plan import digital_task_metadata
+from monata.digital.stim import DigitalStimulusConfig
+from monata.digital.verify import DigitalWaveformAnalyzer
+from support.digital_cases import And2
+from monata.digital.plan import digital_task_metadata
+from monata.digital.runner import DigitalTestbenchEntry, digital_stimulus_for_entry
 from monata.views.declarative import SchematicJsonView, SymbolJsonView, TestbenchJsonView
 from monata.views.base import View
-from monata.sim.digital_verification import write_digital_verification_artifacts
+from monata.digital.verification import write_digital_verification_artifacts
 from monata.views.verification import VerificationView
 from monata.views.netlist import NetlistView
 from monata.views.simulation import SimulationRecipeView, SimulationView
@@ -131,11 +131,11 @@ class _DelayRetryRecordingExecutor(_RecordingExecutor):
 
     def submit(self, task):
         self.tasks.append(task)
-        return _ImmediateFuture(self._result_for_task(task))
+        return _future_with_result(self._result_for_task(task))
 
     def map(self, tasks):
         self.tasks.extend(tasks)
-        return [_ImmediateFuture(self._result_for_task(task)) for task in tasks]
+        return [_future_with_result(self._result_for_task(task)) for task in tasks]
 
     def _result_for_task(self, task):
         payload = _task_digital_metadata(task)
@@ -143,7 +143,7 @@ class _DelayRetryRecordingExecutor(_RecordingExecutor):
         if task_kind == "digital-single-bit-arc-sequence":
             self._delay_attempts += 1
             if self._delay_attempts == 1:
-                return _unmeasurable_timing_result_for_task(task)
+                return SimResult(status="ok", waveforms={}, sweep_var=None, corner=None, metadata=task.metadata)
         return _op_result_for_task(task)
 
 
@@ -327,12 +327,9 @@ def _run_truth_table_verification(cell, *, executor, artifact_dir, run_config):
     spec = verification.load()
     recipe = simulation.load()
     resolved = recipe.resolve(library=cell.library, run_config=run_config)
-    builder_kwargs = dict(resolved.builder_kwargs)
-    stimulus = DigitalStimulusConfig.from_spec_and_recipe(
-        spec, recipe,
-        run_config=resolved.run_config,
-        library=cell.library,
-        resolved_recipe=resolved,
+    stimulus = digital_stimulus_for_entry(
+        DigitalTestbenchEntry(cell=cell, view=verification, spec=spec),
+        resolved,
     )
     measurements = ("truth_table", "max_propagation_delay")
     sim_results = simulation.run_tasks(
@@ -520,13 +517,13 @@ def test_verification_view_loads_data_and_runner_uses_simulation_boundary(tmp_pa
 
     assert result.mode == "transient"
     assert [row.as_dict()["status"] for row in result] == ["PASS", "PASS", "PASS", "PASS"]
-    assert result.max_propagation_delay == pytest.approx(0.2)
+    assert result.max_propagation_delay == pytest.approx(0.25)
     assert len(executor.tasks) == 2
     assert (artifact_dir / "tasks" / "task-0000").is_dir()
     assert (artifact_dir / "tasks" / "task-0001").is_dir()
     measures = json.loads((artifact_dir / "measures.json").read_text())
     assert measures["truth_table"]["status"] == "PASS"
-    assert measures["max_propagation_delay"]["value"] == pytest.approx(0.2)
+    assert measures["max_propagation_delay"]["value"] == pytest.approx(0.25)
     assert measures["max_propagation_delay"]["coverage"]["kind"] == "directed_single_bit_exhaustive"
     run = json.loads((artifact_dir / "run.json").read_text())
     assert run["schema"] == "monata-digital-verification-run-v1"
@@ -785,13 +782,6 @@ def test_digital_truth_table_spec_helper_uses_data_schematic_without_neighbor_py
     )
     dut.create_view("schematic")
 
-    spec = DigitalVerificationSpec(
-        dut="and2",
-        inputs=("a", "b"),
-        outputs=("out",),
-        measures=(DigitalVerificationMeasure(name="truth_table", oracle="exact",
-                                              expected=AND2_EXPECTED_TABLE),),
-    )
     stimulus = DigitalStimulusConfig(
         dut=And2,
         inputs=("a", "b"),

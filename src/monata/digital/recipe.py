@@ -6,8 +6,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from monata.sim.digital_claims import DigitalTransientObservation
-from monata.sim.digital_projection import PdkDeviceProjection, PdkModelProjectionLibrary
+from monata.digital.claims import DigitalTransientObservation
+from monata.digital.projection import PdkDeviceProjection, PdkModelProjectionLibrary
 from monata.sim.task import SimArtifactOptions
 
 

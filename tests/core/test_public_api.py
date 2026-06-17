@@ -161,6 +161,31 @@ DIGITAL_RESULTS_EXPORTS = {
     "DigitalTruthTableRow",
 }
 
+DIGITAL_EXPORTS = {
+    "DigitalMeasurementName",
+    "DigitalModelContext",
+    "DigitalPropagationDelayRow",
+    "DigitalRunConfig",
+    "DigitalRunnerOptions",
+    "DigitalSimulationRecipe",
+    "DigitalStimulusConfig",
+    "DigitalTestbenchEntry",
+    "DigitalTransientObservation",
+    "DigitalTruthTableResult",
+    "DigitalTruthTableRow",
+    "DigitalVerificationClaim",
+    "DigitalVerificationMeasure",
+    "DigitalVerificationSpec",
+    "DigitalWaveformAnalyzer",
+    "ExpectedTable",
+    "ExpectedTableReference",
+    "discover_digital_testbench_entries",
+    "dry_run_payload",
+    "run_digital_matrix",
+    "select_digital_testbench_entries",
+    "validate_digital_testbench_coverage",
+}
+
 VECTOR_NAMES_EXPORTS = {
     "VECTOR_KINDS",
     "VectorName",
@@ -290,13 +315,14 @@ PUBLIC_MODULE_CONTRACTS = (
     ModuleContract("monata.eda", EDA_EXPORTS),
     ModuleContract("monata.sim.rawfile", RAWFILE_EXPORTS),
     ModuleContract("monata.sim.analysis_spec", ANALYSIS_SPEC_EXPORTS),
-    ModuleContract("monata.sim.digital_results", DIGITAL_RESULTS_EXPORTS),
+    ModuleContract("monata.digital", DIGITAL_EXPORTS),
+    ModuleContract("monata.digital.results", DIGITAL_RESULTS_EXPORTS),
     ModuleContract(
-        "monata.sim.digital_stim",
+        "monata.digital.stim",
         exact_all=False,
     ),
     ModuleContract(
-        "monata.sim.digital_verify",
+        "monata.digital.verify",
         exact_all=False,
     ),
     ModuleContract("monata.sim.vector_names", VECTOR_NAMES_EXPORTS),
@@ -565,7 +591,7 @@ def test_core_source_and_public_docs_have_no_python_execution_residue():
 
 def test_simulation_recipe_parser_has_no_strong_runtime_field_residue():
     project_root = PROJECT_ROOT
-    parser_text = (project_root / "src" / "monata" / "sim" / "digital_recipe.py").read_text(encoding="utf-8")
+    parser_text = (project_root / "src" / "monata" / "digital" / "recipe.py").read_text(encoding="utf-8")
 
     for token in (
         "SimulationModelConfig",
@@ -733,10 +759,12 @@ def test_import_sim_cache_api_does_not_eagerly_load_ngspice_runner():
     assert result.stdout.splitlines() == ["False", "False"]
 
 
-def test_sim_digital_facade_is_not_a_public_surface():
+def test_sim_digital_modules_are_not_public_surfaces():
     project_root = PROJECT_ROOT
 
     assert not (project_root / "src" / "monata" / "sim" / "digital.py").exists()
+    assert not list((project_root / "src" / "monata" / "sim").glob("digital_*.py"))
+    assert not (project_root / "src" / "monata" / "sim" / "_digital_bits.py").exists()
 
 
 def test_digital_task_and_extract_layers_use_explicit_plan_boundary():
@@ -752,12 +780,19 @@ def test_digital_task_and_extract_layers_use_explicit_plan_boundary():
     )
 
     for relative_path in (
-        "src/monata/sim/digital_stim.py",
-        "src/monata/sim/digital_verify.py",
+        "src/monata/digital/stim.py",
+        "src/monata/digital/verify.py",
     ):
         source = (project_root / relative_path).read_text()
         for name in private_table_protocols:
             assert f"table.{name}" not in source
+
+
+def test_digital_stimulus_does_not_import_view_layer():
+    project_root = PROJECT_ROOT
+    source = (project_root / "src" / "monata" / "digital" / "stim.py").read_text()
+
+    assert "monata.views" not in source
 
 
 def test_sim_core_convenience_bundle_exports_core_contracts():

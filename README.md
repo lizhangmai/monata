@@ -191,25 +191,24 @@ and complying with their upstream licenses.
 ## Structured Digital Views
 
 Digital truth-table verification uses structured cellviews by default. A
-`digital_truth_table` view points at `digital_truth_table.monata.json` with
-`format = "monata-digital-truth-table-json"` and a `simulation` view points at
+`verification` view points at `verification.monata.json` with
+`format = "monata-verification-json"` and a `simulation` view points at
 `simulation.monata.json` with `format = "monata-simulation-json"`.
 
-`digital_truth_table.monata.json` uses `schema_version` and
-`view_type = "monata-digital-truth-table"` to describe verification intent:
-the DUT, stage, simulation mode, input and output pins, dependencies, rails,
-complement inputs, oracle, and an `expected` table
-reference. Expected tables stay in a separate file, usually cell-local
-`expected.json`, referenced by a relative `entry` with
+`verification.monata.json` uses `schema_version` and
+`view_type = "monata-verification"` to describe verification intent:
+the DUT, input and output pins, dependencies, rails, complement inputs,
+requested measures, oracle, and an `expected` table reference. Expected
+tables stay in a separate file, usually cell-local `expected.json`,
+referenced by a relative `entry` with
 `format = "monata-expected-table-json"`.
 
-`simulation.monata.json` uses `schema_version`,
-`view_type = "monata-simulation"`, and
-`recipe_kind = "digital_truth_table_transient"` to describe the simulation
-recipe: transient timing, load capacitance, observation defaults, backend and
-projection data, SPICE options, model cards, and named `model_profiles`.
-Monata selects the profile from the run configuration, then adapts the recipe
-into the existing digital simulation engine.
+`simulation.monata.json` uses `schema_version`, `view_type = "monata-simulation"`,
+and `analysis = "transient"` to describe the simulation recipe: transient timing,
+load capacitance, observation defaults, backend and projection data, SPICE
+options, model cards, and named `model_profiles`. Monata selects the profile
+from the run configuration, resolves a digital model context, and builds
+explicit `SimTask` objects for the executor.
 
 These JSON formats fail closed: unknown fields are rejected, `entry` paths must
 be relative to the cell directory, and absolute paths or `..` escapes are not
@@ -261,7 +260,7 @@ Long-form documentation lives outside this source package:
 
 Monata 0.2 treats ordinary cellviews as declarative data by default:
 `schematic.monata.json`, `symbol.monata.json`, `testbench.monata.json`,
-`digital_truth_table.monata.json`, and `simulation.monata.json` are parsed and
+`verification.monata.json`, and `simulation.monata.json` are parsed and
 validated. These views are parsed and validated without executing project code.
 For data views, `read()` returns the structured payload and `load()` remains a
 safe parse operation.

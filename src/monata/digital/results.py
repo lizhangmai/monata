@@ -6,8 +6,8 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from monata.sim._digital_bits import bits_to_text
-from monata.sim.digital_claims import DigitalComparisonResult, DigitalVerificationClaim
+from monata.digital.bits import bits_to_text
+from monata.digital.claims import DigitalComparisonResult, DigitalVerificationClaim
 from monata.sim.results import SimResult
 
 __all__ = [

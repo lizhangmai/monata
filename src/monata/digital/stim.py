@@ -4,7 +4,7 @@ This module owns the *simulation* side of the digital pipeline: it
 describes a clocked Gray-code stimulus, builds the corresponding
 SPICE circuits, and produces ``SimTask`` objects ready for execution.
 It has no knowledge of truth tables, expected outputs, or verification
-— those concerns live in ``digital_verify.py``.
+— those concerns live in ``monata.digital.verify``.
 """
 
 from __future__ import annotations
@@ -14,13 +14,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from monata.sim._digital_bits import bits_to_text, gray_code_chunks, gray_code_sequence
-from monata.sim.analysis_spec import TranSpec
-from monata.sim.digital_circuits import (
+from monata.digital.bits import bits_to_text, gray_code_chunks, gray_code_sequence
+from monata.digital.circuits import (
     DigitalTruthTableCircuitBuilder,
     SubCircuitInput,
     _subckt_name,
 )
+from monata.digital.model_context import DigitalModelContext
+from monata.sim.analysis_spec import TranSpec
 from monata.sim.results import SimResult
 from monata.sim.task import SimArtifactOptions, SimTask
 
@@ -50,76 +51,18 @@ class DigitalStimulusConfig:
     sample_fraction: float = 0.9
     load_cap: str | float | None = None
     setup: Any = None
-    library: Any = None
-    corner: Any = None
-    model_config: Any = None
+    model_context: DigitalModelContext = DigitalModelContext()
     backend_options: Mapping[str, Any] | None = None
     artifacts: SimArtifactOptions | Mapping[str, Any] | str | Path | None = None
     metadata: dict[str, Any] | None = None
-
-    @classmethod
-    def from_spec_and_recipe(
-        cls,
-        spec: Any,
-        recipe: Any,  # kept for API symmetry; resolved_recipe provides builder_kwargs
-        *,
-        run_config: Any,
-        library: Any,
-        resolved_recipe: Any,
-    ) -> "DigitalStimulusConfig":
-        """Build a stimulus config from verification spec + simulation recipe.
-
-        The *spec* provides DUT identity, pin lists, and dependencies.
-        The *recipe* provides timing, loading, and model configuration.
-        Neither object is modified; the stimulus config is a pure
-        simulation view of their intersection.
-        """
-        from monata.views.declarative import schematic_view_to_subcircuit
-
-        def _load_schematic(cell_name: str) -> SubCircuitInput:
-            return schematic_view_to_subcircuit(
-                library[cell_name]["schematic"],
-                reason="digital stimulus",
-            )
-
-        bk = resolved_recipe.builder_kwargs
-        return cls(
-            dut=_load_schematic(spec.dut),
-            inputs=spec.inputs,
-            outputs=spec.outputs,
-            complement_inputs=spec.complement_inputs,
-            dependencies=tuple(_load_schematic(name) for name in spec.dependencies),
-            rails=spec.rails,
-            vdd=float(getattr(run_config, "vdd", 1.0)),
-            threshold=getattr(run_config, "threshold", None) or float(getattr(run_config, "vdd", 1.0)) / 2.0,
-            period=bk.get("period", 1e-9),
-            step=bk.get("step"),
-            transition=bk.get("transition", 0.0),
-            skew_step=bk.get("skew_step", 0.0),
-            load_cap=bk.get("load_cap"),
-            setup=bk.get("setup"),
-            library=bk.get("projection_library"),
-            corner=getattr(run_config, "corner", None),
-            model_config=getattr(run_config, "model_config", None),
-            backend_options=bk.get("backend_options"),
-            artifacts=bk.get("artifacts"),
-            metadata={**bk.get("metadata", {}), "simulation_analysis": "transient"},
-        )
 
     @property
     def dut_name(self) -> str:
         return _subckt_name(self.dut)
 
     @property
-    def model_flow(self):
-        """Lazy-resolved model flow for OSDI path discovery."""
-        if self.library is None or self.corner is None or self.model_config is None:
-            return None
-        try:
-            from monata.sim.digital_table_config import _resolve_model_flow
-            return _resolve_model_flow(self.library, self.corner, self.model_config)
-        except Exception:
-            return None
+    def corner(self):
+        return self.model_context.corner
 
     def clocked_sequence_circuit(
         self, states, *, initial_settle, clock_period,
@@ -189,7 +132,7 @@ class DigitalStimulusConfig:
                     ),
                     corner=self.corner,
                     output_names=tuple((*self.inputs, "clk", *self.outputs)),
-                    osdi_paths=_model_flow_osdi_paths(self),
+                    osdi_paths=self.model_context.osdi_paths,
                     backend_options=self.backend_options,
                     artifacts=self.artifacts,
                     metadata=_task_metadata(
@@ -252,13 +195,6 @@ class DigitalStimulusConfig:
         return results
 
 
-def _model_flow_osdi_paths(stim: DigitalStimulusConfig) -> tuple[str, ...]:
-    mf = stim.model_flow
-    if mf is None:
-        return ()
-    return tuple(getattr(mf.model_selection, "osdi_paths", ()))
-
-
 def _task_metadata(
     stim: DigitalStimulusConfig,
     task_kind: str,
@@ -268,7 +204,7 @@ def _task_metadata(
     coverage: Mapping[str, object] | None = None,
     transient: Mapping[str, object] | None = None,
 ) -> dict[str, Any]:
-    from monata.sim.digital_plan import MONATA_METADATA_KEY, DIGITAL_TASK_METADATA_KEY
+    from monata.digital.plan import MONATA_METADATA_KEY, DIGITAL_TASK_METADATA_KEY
 
     metadata = dict(stim.metadata or {})
     payload: dict[str, Any] = {

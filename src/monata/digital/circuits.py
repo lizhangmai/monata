@@ -11,7 +11,7 @@ from monata._home import monata_cache_dir
 from monata.netlist import Circuit, SubCircuit
 
 if TYPE_CHECKING:
-    from monata.sim.digital_stim import DigitalStimulusConfig as _TableLike
+    from monata.digital.stim import DigitalStimulusConfig as _TableLike
 
 SubCircuitInput = type[SubCircuit] | SubCircuit
 
@@ -162,18 +162,7 @@ class DigitalTruthTableCircuitBuilder:
         return dut
 
     def _project_circuit(self, circuit: Circuit) -> Circuit:
-        table = self.table
-        if table.library is None:
-            return circuit
-        if table.model_flow is None:
-            return table.library.project_pdk_instances(circuit, corner=table.corner)
-        projected = table.library.project_pdk_instances(
-            circuit,
-            corner=table.corner,
-            include_models=False,
-        )
-        table.model_flow.model_selection.apply_to_circuit(projected)
-        return projected
+        return self.table.model_context.project_circuit(circuit)
 
     def _add_loads(self, circuit: Circuit, prefix: str | None = None) -> None:
         table = self.table

@@ -5,8 +5,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from monata.sim.digital_plan import digital_task_metadata
-from monata.sim.digital_results import DigitalTruthTableResult
+from monata.digital.plan import digital_task_metadata
+from monata.digital.results import DigitalTruthTableResult
 from monata.sim.results import SimResult
 
 
