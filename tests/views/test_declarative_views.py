@@ -109,12 +109,12 @@ def test_create_view_metadata_uses_data_schematic(tmp_path):
     }
 
 
-def test_create_view_data_format_rejects_python_metadata(tmp_path):
+def test_create_view_data_format_rejects_executable_metadata(tmp_path):
     cell = _make_cell(tmp_path, "")
 
-    with pytest.raises(ValueError, match="Python schematic metadata is not supported"):
+    with pytest.raises(ValueError, match="executable metadata"):
         cell.create_view("schematic", format="monata-schematic-json", cls_name="Inv")
-    with pytest.raises(ValueError, match="executable Python metadata"):
+    with pytest.raises(ValueError, match="executable metadata"):
         cell.create_view("testbench", format="monata-testbench-json", function_name="main")
 
     with open(cell.path / "cell.toml", "rb") as file:

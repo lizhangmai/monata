@@ -18,7 +18,6 @@ MONATA_SYMBOL_JSON = "monata-symbol-json"
 MONATA_TESTBENCH_JSON = "monata-testbench-json"
 SCHEMA_VERSION = 1
 SCHEMATIC_SCHEMA_VERSION = 2
-_REMOVED_PYTHON_SCHEMATIC_FORMAT = "python-" + "schematic"
 
 _NUMBER_RE = re.compile(r"^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)([A-Za-zµ]*)\s*$")
 _UNIT_FACTORS = {
@@ -191,11 +190,6 @@ def schematic_view_to_circuit(
             raise TypeError(f"{reason}: schematic data view is not convertible to a circuit")
         return _require_native_netlist(to_circuit(), reason=reason)
 
-    if view_format == _REMOVED_PYTHON_SCHEMATIC_FORMAT:
-        raise TypeError(
-            f"{reason}: legacy Python schematic format is no longer supported for canonical schematic views; "
-            "use monata-schematic-json structured schematic data"
-        )
     raise TypeError(f"{reason}: unsupported schematic view format {view_format!r}")
 
 

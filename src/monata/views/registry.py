@@ -15,10 +15,6 @@ ViewConfigOptions: TypeAlias = Mapping[str, object]
 ViewFactory = Callable[[Any, ViewConfig], Any]
 ViewConfigFactory = Callable[[str, ViewConfigOptions, "ViewSchema"], ViewConfig]
 ViewGenerator = Callable[..., Path]
-_REMOVED_SCHEMATIC_PY_VIEW = "schematic" + "_py"
-_REMOVED_PYTHON_SCHEMATIC_FORMAT = "python-" + "schematic"
-_REMOVED_EXEC_TEST_VIEW = "testbench" + "_py"
-_REMOVED_EXEC_TEST_FORMAT = "python-" + "testbench"
 _VERIFICATION_JSON_FORMAT = "monata-verification-json"
 _SIMULATION_JSON_FORMAT = "monata-simulation-json"
 _DATA_VIEW_CONFIG_FIELDS = frozenset({
@@ -27,7 +23,9 @@ _DATA_VIEW_CONFIG_FIELDS = frozenset({
     "generated",
     "schema_version",
 })
-_DATA_VIEW_PYTHON_FIELDS = frozenset({
+_EXECUTABLE_VIEW_CONFIG_FIELDS = frozenset({
+    "class",
+    "cls_name",
     "function",
     "function_name",
     "trusted",
@@ -90,15 +88,11 @@ class ViewRegistry:
         default_entry: str | None = None,
         view_format: str | None = None,
         generated: bool = False,
-        trusted: bool = False,
         schema_version: int | None = None,
         config_factory: ViewConfigFactory | None = None,
         generator: ViewGenerator | None = None,
     ) -> None:
         key = _view_type_key(view_type)
-        _reject_removed_testbench_view(key, view_format)
-        if trusted:
-            raise ValueError("trusted executable view registration is not supported in Monata core")
         if key in self._schemas and not replace:
             raise ValueError(f"view type already registered: {key}")
         fmt = _format_key(view_format) if view_format is not None else None
@@ -136,8 +130,6 @@ class ViewRegistry:
         return schema.factory if schema is not None else None
 
     def create_config(self, view_type: str, options: ViewConfigOptions) -> MutableViewConfig:
-        _reject_removed_schematic_view(view_type, options.get("format"))
-        _reject_removed_testbench_view(view_type, options.get("format"))
         schema = None
         requested_format = options.get("format")
         if requested_format is not None:
@@ -159,14 +151,12 @@ class ViewRegistry:
     def _schema_for_view_config(self, view_type: str, config: ViewConfig) -> ViewSchema | None:
         if "format" in config:
             view_format = _format_key(config["format"])
-            _reject_removed_schematic_view(view_type, view_format)
-            _reject_removed_testbench_view(view_type, view_format)
             _reject_executable_view_metadata(view_type, config)
             schema = self.get_schema_for_format(view_format)
             if schema is None:
                 raise ValueError(f"unknown view format: {view_format}")
             return schema
-        _reject_removed_view_metadata(view_type, config)
+        _validate_unformatted_view_config(view_type, config)
         return self.get_schema(view_type)
 
     def generate(self, cell: Any, view_type: str, **kwargs: Any) -> Path:
@@ -194,7 +184,6 @@ def register_view_type(
     default_entry: str | None = None,
     view_format: str | None = None,
     generated: bool = False,
-    trusted: bool = False,
     schema_version: int | None = None,
     config_factory: ViewConfigFactory | None = None,
     generator: ViewGenerator | None = None,
@@ -206,7 +195,6 @@ def register_view_type(
         default_entry=default_entry,
         view_format=view_format,
         generated=generated,
-        trusted=trusted,
         schema_version=schema_version,
         config_factory=config_factory,
         generator=generator,
@@ -365,11 +353,6 @@ def _verification_view(cell: Any, cfg: ViewConfig) -> Any:
 
 
 def _schematic_config(view_type: str, options: ViewConfigOptions, schema: ViewSchema) -> MutableViewConfig:
-    if any(key in options for key in ("cls_name", "class")):
-        raise ValueError(
-            "monata-schematic-json views cannot include Python class metadata; "
-            "Python schematic metadata is not supported for the canonical schematic view"
-        )
     return {
         "entry": options.get("entry", schema.default_entry or "schematic.monata.json"),
         "format": "monata-schematic-json",
@@ -377,41 +360,8 @@ def _schematic_config(view_type: str, options: ViewConfigOptions, schema: ViewSc
     }
 
 
-def _unsupported_python_schematic_message() -> str:
-    return (
-        "legacy Python schematic format is no longer supported for canonical schematic views; "
-        "use monata-schematic-json structured schematic data"
-    )
-
-
-def _reject_removed_schematic_view(view_type: object, view_format: object | None = None) -> None:
-    if view_type == _REMOVED_SCHEMATIC_PY_VIEW:
-        raise ValueError("removed Python schematic view type is no longer built in; " + _unsupported_python_schematic_message())
-    if view_format == _REMOVED_PYTHON_SCHEMATIC_FORMAT:
-        raise ValueError(_unsupported_python_schematic_message())
-
-
-def _unsupported_python_testbench_message() -> str:
-    return (
-        "Python testbench cellviews are no longer supported in Monata core; "
-        "use declarative structured data and explicit simulation/executor flows"
-    )
-
-
-def _reject_removed_testbench_view(view_type: object, view_format: object | None = None) -> None:
-    if view_type == _REMOVED_EXEC_TEST_VIEW:
-        raise ValueError("removed Python testbench view type is no longer built in; " + _unsupported_python_testbench_message())
-    if view_format == _REMOVED_EXEC_TEST_FORMAT:
-        raise ValueError(_unsupported_python_testbench_message())
-
-
 def _testbench_config(view_type: str, options: ViewConfigOptions, schema: ViewSchema) -> MutableViewConfig:
     entry = str(options.get("entry", schema.default_entry or "testbench.monata.json"))
-    if any(key in options for key in ("function_name", "function")):
-        raise ValueError(
-            "monata-testbench-json views cannot include executable Python metadata; "
-            "use declarative structured data and explicit simulation/executor flows"
-        )
     return {
         "entry": entry,
         "format": "monata-testbench-json",
@@ -431,24 +381,17 @@ def _symbol_config(view_type: str, options: ViewConfigOptions, schema: ViewSchem
     }
 
 
-def _reject_removed_view_metadata(view_type: str, config: ViewConfig) -> None:
-    _reject_removed_schematic_view(view_type, config.get("format"))
-    _reject_removed_testbench_view(view_type, config.get("format"))
+def _validate_unformatted_view_config(view_type: str, config: ViewConfig) -> None:
     _reject_executable_view_metadata(view_type, config)
-    if view_type == "schematic" and "class" in config:
-        raise ValueError(
-            "schematic Python class metadata is no longer supported; "
-            "use monata-schematic-json structured schematic data"
-        )
     if view_type == "symbol" and str(config.get("entry", "")).endswith(".toml"):
         raise ValueError("symbol.toml views are not supported; use symbol.monata.json")
 
 
 def _reject_executable_view_metadata(view_type: object, config: Mapping[str, object]) -> None:
-    python_fields = sorted(key for key in config if key in _DATA_VIEW_PYTHON_FIELDS)
-    if python_fields:
+    executable_fields = sorted(key for key in config if key in _EXECUTABLE_VIEW_CONFIG_FIELDS)
+    if executable_fields:
         raise ValueError(
-            f"{view_type} cannot include executable Python metadata: {', '.join(python_fields)}; "
+            f"{view_type} cannot include executable metadata: {', '.join(executable_fields)}; "
             "load() and read() parse structured data only"
         )
 

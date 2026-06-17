@@ -805,14 +805,12 @@ def test_view_registry_object_isolated_from_default_registry():
 
 def test_default_registry_includes_simulation_and_verification_only():
     unregistered_view_name = "digital" + "_truth_table"
-    python_testbench_view = "testbench" + "_py"
-    python_testbench_format = "python" + "-testbench"
 
     assert get_view_factory("simulation") is not None
     assert get_view_factory("verification") is not None
     assert get_view_factory(unregistered_view_name) is None
     assert get_view_factory("digital_verification") is None
-    assert get_view_factory(python_testbench_view) is None
+    assert get_view_factory("adhoc_testbench") is None
     assert create_registered_view_config("simulation") == {
         "entry": "simulation.monata.json",
         "format": "monata-simulation-json",
@@ -823,10 +821,10 @@ def test_default_registry_includes_simulation_and_verification_only():
         "format": "monata-verification-json",
         "schema_version": 1,
     }
-    with pytest.raises(ValueError, match="Python testbench cellviews are no longer supported"):
-        create_registered_view_config(python_testbench_view)
-    with pytest.raises(ValueError, match="Python testbench cellviews are no longer supported"):
-        create_registered_view_config("testbench", format=python_testbench_format)
+    with pytest.raises(ValueError, match="unknown view type: adhoc_testbench"):
+        create_registered_view_config("adhoc_testbench")
+    with pytest.raises(ValueError, match="unknown view format: adhoc-testbench"):
+        create_registered_view_config("testbench", format="adhoc-testbench")
     with pytest.raises(ValueError, match="unknown view config fields: mode"):
         create_registered_view_config("verification", mode="transient")
     with pytest.raises(ValueError, match="unknown view type: digital_verification"):
@@ -848,7 +846,7 @@ def test_default_registry_includes_simulation_and_verification_only():
     ],
 )
 def test_default_registry_rejects_executable_metadata_shapes(view_type, metadata):
-    with pytest.raises(ValueError, match="cannot include executable Python metadata"):
+    with pytest.raises(ValueError, match="cannot include executable metadata"):
         create_registered_view_config(view_type, **metadata)
 
 

@@ -11,9 +11,6 @@ from monata.views import View
 from monata.views.registry import register_view_type, unregister_view_type
 
 
-PYTHON_TESTBENCH_FORMAT = "python" + "-testbench"
-
-
 def _make_cell(tmp_path, cell_name="inverter", views_toml=""):
     cell_dir = tmp_path / cell_name
     cell_dir.mkdir()
@@ -139,22 +136,22 @@ def test_cell_getitem_symbol(tmp_path):
         (
             'schematic = { entry = "schematic.py", class = "Inv" }\n',
             "schematic",
-            "Python class metadata is no longer supported",
+            "executable metadata",
         ),
         (
             'testbench = { entry = "testbench.py", function = "main" }\n',
             "testbench",
-            "executable Python metadata",
+            "executable metadata",
         ),
         (
-            f'testbench = {{ entry = "testbench.py", format = "{PYTHON_TESTBENCH_FORMAT}" }}\n',
+            'testbench = { entry = "testbench.py", format = "adhoc-testbench" }\n',
             "testbench",
-            "Python testbench cellviews are no longer supported",
+            "unknown view format",
         ),
         (
             'testbench = { entry = "testbench.monata.json", format = "monata-testbench-json", trusted = false }\n',
             "testbench",
-            "executable Python metadata",
+            "executable metadata",
         ),
         (
             'symbol = { entry = "symbol.toml", generated = true }\n',
@@ -268,10 +265,10 @@ def test_cell_create_view_rejects_executable_or_invalid_metadata_without_writing
     cell_dir = _make_cell(tmp_path)
     cell = Cell(cell_dir, MagicMock())
 
-    with pytest.raises(ValueError, match="cannot include Python class metadata"):
+    with pytest.raises(ValueError, match="executable metadata"):
         cell.create_view("schematic", entry="schematic.py", cls_name="Inv")
 
-    with pytest.raises(ValueError, match="executable Python metadata"):
+    with pytest.raises(ValueError, match="executable metadata"):
         cell.create_view("testbench", entry="testbench.py", function_name="main")
 
     with pytest.raises(ValueError, match="symbol.monata.json"):
