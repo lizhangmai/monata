@@ -67,8 +67,8 @@ class SimulationView(View):
 
     def load(self) -> Any:
         raise TypeError(
-            "SimulationView no longer loads Python factories; use "
-            "SimulationRecipeView for data recipes or run explicit task/tasks"
+            "SimulationView.load() is not a data-loading API; use SimulationRecipeView "
+            "for recipe data or run explicit task/tasks"
         )
 
     def run(
