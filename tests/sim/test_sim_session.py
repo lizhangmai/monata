@@ -228,38 +228,9 @@ def test_simulation_session_uses_monata_analysis_method_names():
         session.noise("out", src="vin", start=1, stop=1e6, points=8)
 
 
-def test_circuit_simulator_creates_backend_neutral_session():
-    circuit = Circuit("session facade")
-
+def test_circuit_does_not_expose_simulation_session_facade():
     assert not hasattr(Circuit, "simulation")
-
-    session = circuit.simulator(
-        simulator="ngspice-shared",
-        output_names=["out", "out", "in"],
-        metadata={"suite": "sanity"},
-        backend_options={"rawfile_format": "binary"},
-        artifacts={"directory": "artifacts", "overwrite": True},
-        snapshot_tasks=False,
-        timeout=None,
-        temperature=125,
-        nominal_temperature=27,
-    )
-
-    assert isinstance(session, SimulationSession)
-    assert session.circuit is circuit
-    assert session.simulator == "ngspice-shared"
-    assert session.output_names == ("out", "in")
-    assert session.metadata == {"suite": "sanity"}
-    assert session.backend_options == {"rawfile_format": "binary"}
-    assert str(session.artifacts.directory) == "artifacts"
-    assert session.artifacts.overwrite is True
-    assert session.snapshot_tasks is False
-    assert session.timeout is None
-    assert render_ngspice(circuit) == (
-        "session facade\n"
-        ".options temp=125 tnom=27\n"
-        ".end\n"
-    )
+    assert not hasattr(Circuit, "simulator")
 
 
 def test_simulation_session_applies_and_overrides_task_execution_options(tmp_path):

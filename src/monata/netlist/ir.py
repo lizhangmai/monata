@@ -872,42 +872,6 @@ class Circuit(_Scope):
     def __str__(self) -> str:
         return self.to_spice()
 
-    def simulator(
-        self,
-        simulator: str | None = None,
-        *,
-        output_names: Iterable[str] = (),
-        metadata: dict[str, Any] | None = None,
-        backend_options: dict[str, Any] | None = None,
-        artifacts: Any = None,
-        snapshot_tasks: bool | None = None,
-        timeout: Any = _UNSET,
-        temperature: Any = _UNSET,
-        nominal_temperature: Any = _UNSET,
-    ) -> Any:
-        """Return a backend-neutral simulation session for this circuit."""
-
-        from monata.sim.session import SimulationSession
-
-        kwargs: dict[str, Any] = {"output_names": output_names}
-        if simulator is not None:
-            kwargs["simulator"] = simulator
-        if metadata is not None:
-            kwargs["metadata"] = metadata
-        if backend_options is not None:
-            kwargs["backend_options"] = backend_options
-        if artifacts is not None:
-            kwargs["artifacts"] = artifacts
-        if snapshot_tasks is not None:
-            kwargs["snapshot_tasks"] = snapshot_tasks
-        if timeout is not _UNSET:
-            kwargs["timeout"] = timeout
-        if temperature is not _UNSET:
-            kwargs["temperature"] = temperature
-        if nominal_temperature is not _UNSET:
-            kwargs["nominal_temperature"] = nominal_temperature
-        return SimulationSession(self, **kwargs)
-
     def output(self, line: str) -> None:
         if not line:
             raise NetlistError("output line is required")
