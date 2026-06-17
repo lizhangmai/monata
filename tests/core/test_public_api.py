@@ -391,13 +391,13 @@ def test_ci_matrix_covers_advertised_python_classifiers():
         assert f'"{version}"' in ci_text
 
 
-def test_release_metadata_marks_0_2_as_stable():
+def test_release_metadata_marks_0_3_as_stable():
     project_root = PROJECT_ROOT
     pyproject = tomllib.loads((project_root / "pyproject.toml").read_text(encoding="utf-8"))
     classifiers = set(pyproject["project"]["classifiers"])
 
     major, minor, *_ = pyproject["project"]["version"].split(".")
-    assert (major, minor) == ("0", "2")
+    assert (major, minor) == ("0", "3")
     assert "Development Status :: 5 - Production/Stable" in classifiers
     assert "Development Status :: 3 - Alpha" not in classifiers
 
