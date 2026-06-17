@@ -12,7 +12,7 @@ from monata._paths import resolve_relative_path
 from monata.models.artifacts import ModelArtifact
 from monata.models.diagnostics import ModelDiagnostic
 from monata.models.manifest import ModelSelection
-from monata.sim.capabilities import SimulatorProfile
+from monata.runtime.capabilities import SimulatorProfile
 from monata.techlib.schema import TechlibError
 
 

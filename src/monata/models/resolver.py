@@ -25,7 +25,7 @@ from monata.models.flow import (
 )
 from monata.models.manifest import ModelSelection
 from monata.models.registry import ModelEntry
-from monata.sim.capabilities import CapabilityState, SimulatorProfile
+from monata.runtime.capabilities import CapabilityState, SimulatorProfile
 from monata.techlib.schema import TechlibError
 
 

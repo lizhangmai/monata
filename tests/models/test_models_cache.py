@@ -10,7 +10,7 @@ from monata.models.diagnostics import ModelDiagnosticError
 from monata.models.flow import SimulationModelConfig
 from monata.models.resolver import resolve_model_flow
 from monata.models.registry import ModelRegistry
-from monata.sim.capabilities import CapabilityState, ngspice_profile
+from monata.runtime.capabilities import CapabilityState, ngspice_profile
 from support.model_cases import _flow_test_techlib, _write_fake_openvaf
 pytestmark = pytest.mark.slow
 

@@ -333,11 +333,8 @@ PUBLIC_MODULE_CONTRACTS = (
     ),
     ModuleContract("monata.sim.task", forbidden_attrs=frozenset({"SimResult", "SimStatus"}), exact_all=False),
     ModuleContract("monata.sim.cache", SIM_CACHE_EXPORTS),
-    ModuleContract(
-        "monata.sim.capabilities",
-        SIMULATOR_CAPABILITIES_EXPORTS,
-        frozenset({"BackendCapabilities"}),
-    ),
+    ModuleContract("monata.runtime", SIMULATOR_CAPABILITIES_EXPORTS),
+    ModuleContract("monata.runtime.capabilities", SIMULATOR_CAPABILITIES_EXPORTS),
     ModuleContract(
         "monata.sim.backends",
         BACKENDS_EXPORTS,
@@ -542,8 +539,8 @@ def test_vector_name_helpers_resolve_owned_request_names():
     assert vector_names.normalize_vector_name("v(out)").normalized_name == "out"
 
 
-def test_sim_capabilities_model_flow_profile_sanity():
-    import monata.sim.capabilities as capabilities
+def test_runtime_capabilities_model_flow_profile_sanity():
+    import monata.runtime.capabilities as capabilities
 
     assert capabilities.ngspice_profile().backend_name == "ngspice-subprocess"
 

@@ -7,7 +7,7 @@ from monata.models.diagnostics import ModelDiagnosticError
 from monata.models.artifacts import ModelArtifact, artifact_sha256
 from monata.models.flow import SimulationModelConfig
 from monata.models.resolver import resolve_model_flow
-from monata.sim.capabilities import CapabilityState, SimulatorCapabilities, native_level_profile, ngspice_profile
+from monata.runtime.capabilities import CapabilityState, SimulatorCapabilities, native_level_profile, ngspice_profile
 from support.model_cases import _flow_test_techlib, _write_osdi_sidecar
 pytestmark = pytest.mark.slow
 

@@ -6,7 +6,7 @@ from monata.models.diagnostics import ModelDiagnosticError
 from monata.models.flow import ModelFlowRecipe, SimulationModelConfig
 from monata.models.resolver import resolve_model_flow
 from monata.models.registry import ModelRegistry
-from monata.sim.capabilities import CapabilityState, native_level_profile, ngspice_profile
+from monata.runtime.capabilities import CapabilityState, native_level_profile, ngspice_profile
 from monata.corner import OperatingCorner
 from monata.techlib.registry import Techlib
 from monata.techlib.schema import ModelDeck, TechlibError
