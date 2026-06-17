@@ -1,17 +1,16 @@
+from __future__ import annotations
+
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from monata._config import read_toml, reject_unknown_fields, write_cell_config
 from monata._paths import validate_path_segment
 from monata._types import NetlistProjectionMode
 from monata.errors import ViewAlreadyModifiedError, ViewNotFoundError
-from monata.views.registry import (
-    ViewConfig,
-    create_registered_view,
-    create_registered_view_config,
-    generate_registered_view,
-)
+
+if TYPE_CHECKING:
+    from monata.views.registry import ViewConfig
 
 _CELL_CONFIG_FIELDS = frozenset({"cell", "views"})
 _CELL_TABLE_FIELDS = frozenset({"name", "description"})
@@ -77,21 +76,10 @@ class Cell:
         return self._path
 
     def _infer_category(self):
-        library_path = getattr(self._library, "path", None)
-        if library_path is None:
+        category_for_cell_path = getattr(self._library, "_category_for_cell_path", None)
+        if not callable(category_for_cell_path):
             return None
-        try:
-            relative_parent = self._path.parent.relative_to(Path(library_path))
-        except ValueError:
-            return None
-        if relative_parent == Path("."):
-            return None
-        category_path = Path(library_path) / relative_parent
-        if not (category_path / "category.toml").exists():
-            return None
-        from monata.category import Category
-
-        self._category = Category(category_path, self._library)
+        self._category = category_for_cell_path(self._path)
         return self._category
 
     def _views_config(self) -> dict[str, ViewConfig]:
@@ -101,6 +89,8 @@ class Cell:
         return sorted(self._views_config().keys())
 
     def __getitem__(self, view_type: str):
+        from monata.views.registry import create_registered_view
+
         views = self._views_config()
         if view_type not in views:
             raise ViewNotFoundError(view_type, self.name)
@@ -133,6 +123,8 @@ class Cell:
         entry: str,
         metadata: Mapping[str, Any] | None = None,
     ) -> None:
+        from monata.views.registry import create_registered_view_config
+
         self._set_view_config(
             view_type,
             create_registered_view_config(
@@ -161,6 +153,8 @@ class Cell:
         return view_path
 
     def create_view(self, view_type: str, **kwargs):
+        from monata.views.registry import create_registered_view_config
+
         view_cfg = create_registered_view_config(view_type, **kwargs)
         self._set_view_config(view_type, view_cfg)
 
@@ -190,4 +184,6 @@ class Cell:
         )
 
     def generate_view(self, view_type: str, **kwargs) -> Path:
+        from monata.views.registry import generate_registered_view
+
         return generate_registered_view(self, view_type, **kwargs)

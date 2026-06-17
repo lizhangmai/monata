@@ -4,15 +4,17 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from monata._json import json_safe_dict as _json_safe_dict
 from monata.measure.freq_domain import bandwidth, gain, gain_margin, phase_margin, unity_gain_freq
 from monata.measure.time_domain import delay, fall_time, overshoot, peak_to_peak, rise_time, settling_time, slew_rate
-from monata.sim.results import AnalysisResult
 from monata.units import Quantity, UnitArray, UnitError, quantity as make_quantity
+
+if TYPE_CHECKING:
+    from monata.sim.results import AnalysisResult
 
 
 @dataclass(frozen=True)
@@ -160,6 +162,8 @@ def _metric_value_and_unit(value: float | Quantity, fallback_unit: str) -> tuple
 
 
 def _analysis_result(result) -> AnalysisResult:
+    from monata.sim.results import AnalysisResult
+
     if isinstance(result, AnalysisResult):
         return result
     analysis = result.analysis_result
