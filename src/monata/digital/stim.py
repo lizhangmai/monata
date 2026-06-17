@@ -14,7 +14,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from monata.digital.bits import bits_to_text, gray_code_chunks, gray_code_sequence
+from monata.digital.bits import (
+    bits_to_text,
+    gray_code_chunks,
+    gray_code_chunks_from_sequence,
+    gray_code_sequence,
+)
 from monata.digital.circuits import (
     DigitalTruthTableCircuitBuilder,
     SubCircuitInput,
@@ -23,7 +28,7 @@ from monata.digital.circuits import (
 from monata.digital.model_context import DigitalModelContext
 from monata.sim.analysis_spec import TranSpec
 from monata.sim.results import SimResult
-from monata.sim.task import SimArtifactOptions, SimTask
+from monata.sim.task import DEFAULT_SIM_TIMEOUT_SECONDS, SimArtifactOptions, SimTask
 
 
 @dataclass(frozen=True)
@@ -84,6 +89,8 @@ class DigitalStimulusConfig:
         measurements: tuple[str, ...] = ("truth_table",),
         clock_period: float | None = None,
         slots_per_task: int | None = None,
+        vector_sequence: tuple[tuple[int, ...], ...] | None = None,
+        timeout: float | int | None = DEFAULT_SIM_TIMEOUT_SECONDS,
     ) -> list[SimTask]:
         """Build ``SimTask`` objects for clocked Gray-code transient simulation.
 
@@ -92,9 +99,10 @@ class DigitalStimulusConfig:
         resolved_clock = self.period if clock_period is None else float(clock_period)
         if resolved_clock <= 0:
             raise ValueError("clock_period must be positive")
-        chunks = gray_code_chunks(
-            len(self.inputs),
-            slots_per_chunk=slots_per_task,
+        chunks = (
+            gray_code_chunks(len(self.inputs), slots_per_chunk=slots_per_task)
+            if vector_sequence is None
+            else gray_code_chunks_from_sequence(vector_sequence, slots_per_chunk=slots_per_task)
         )
         builder = DigitalTruthTableCircuitBuilder(self)  # type: ignore[arg-type]
         tasks: list[SimTask] = []
@@ -135,6 +143,7 @@ class DigitalStimulusConfig:
                     osdi_paths=self.model_context.osdi_paths,
                     backend_options=self.backend_options,
                     artifacts=self.artifacts,
+                    timeout=timeout,
                     metadata=_task_metadata(
                         self,
                         "digital-sequence",
@@ -156,6 +165,8 @@ class DigitalStimulusConfig:
         measurements: tuple[str, ...] = ("truth_table",),
         clock_period: float | None = None,
         slots_per_task: int | None = None,
+        vector_sequence: tuple[tuple[int, ...], ...] | None = None,
+        timeout: float | int | None = DEFAULT_SIM_TIMEOUT_SECONDS,
         progress=None,
     ) -> list[SimResult]:
         """Convenience: build tasks, submit to executor, return results."""
@@ -167,6 +178,8 @@ class DigitalStimulusConfig:
             measurements=measurements,
             clock_period=clock_period,
             slots_per_task=slots_per_task,
+            vector_sequence=vector_sequence,
+            timeout=timeout,
         )
         if executor is None:
             from monata.sim.executor import LocalExecutor

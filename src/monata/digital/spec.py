@@ -33,6 +33,7 @@ class ExpectedTable:
     """User-supplied expected output table for digital truth-table verification."""
 
     rows: Mapping[tuple[int, ...], tuple[int, ...]]
+    complete: bool = True
 
     @classmethod
     def from_rows(
@@ -61,7 +62,9 @@ class ExpectedTable:
             rows = payload
         if not isinstance(rows, list):
             raise ValueError("expected table JSON must contain a 'rows' list")
-        return cls.from_rows(rows)
+        table = cls.from_rows(rows)
+        complete = bool(payload.get("complete", True)) if isinstance(payload, Mapping) else True
+        return cls(table.rows, complete=complete)
 
     def __post_init__(self) -> None:
         normalized: dict[tuple[int, ...], tuple[int, ...]] = {}
@@ -367,6 +370,7 @@ class DigitalVerificationSpec:
             self.expected.validate(
                 input_width=len(self.inputs),
                 output_width=len(self.outputs),
+                require_complete=self.expected.complete,
             )
 
 

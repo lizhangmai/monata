@@ -9,6 +9,7 @@ __all__ = [
     "bits_to_text",
     "gray_code_bit_flip",
     "gray_code_chunks",
+    "gray_code_chunks_from_sequence",
     "gray_code_sequence",
 ]
 
@@ -90,8 +91,18 @@ def gray_code_chunks(
     vectors.  Chunks overlap: the last state of chunk N is the initial
     state of chunk N+1 so the full sequence reconstructs without gaps.
     """
-    sequence = gray_code_sequence(width)
+    return gray_code_chunks_from_sequence(gray_code_sequence(width), slots_per_chunk=slots_per_chunk)
+
+
+def gray_code_chunks_from_sequence(
+    sequence: tuple[tuple[int, ...], ...],
+    *,
+    slots_per_chunk: int | None = None,
+) -> tuple[tuple[int, tuple[int, ...], tuple[tuple[int, ...], ...]], ...]:
+    """Split an explicit Gray-code sequence into overlapping simulation chunks."""
     vector_count = len(sequence)
+    if vector_count == 0:
+        raise ValueError("sequence must contain at least one state")
     if vector_count <= 1:
         return ((0, sequence[0], ()),)
     resolved_slots = slots_per_chunk if slots_per_chunk is not None else vector_count - 1

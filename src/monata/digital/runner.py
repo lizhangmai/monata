@@ -16,6 +16,7 @@ from monata.models import SimulationModelConfig
 from monata.netlist import SubCircuit
 from monata.sim.core import LocalExecutor
 from monata.digital.claims import DigitalTransientObservation
+from monata.digital.bits import gray_code_sequence
 from monata.digital.circuits import SubCircuitInput
 from monata.digital.library import DigitalTestbenchEntry
 from monata.digital.model_context import resolve_digital_model_context
@@ -24,6 +25,7 @@ from monata.digital.results import DigitalTruthTableResult
 from monata.digital.stim import DigitalStimulusConfig
 from monata.digital.verification import write_digital_verification_artifacts
 from monata.digital.verify import DigitalWaveformAnalyzer
+from monata.sim.task import DEFAULT_SIM_TIMEOUT_SECONDS
 
 TruthTableMode = Literal["transient"]
 ProgressCallback = Callable[[Mapping[str, Any]], None]
@@ -58,6 +60,8 @@ class DigitalRunnerOptions:
     cell_workers: int | None = None
     digital_cycles_per_vector: int | None = None
     digital_slots_per_task: int | None = None
+    sim_timeout: float | None = DEFAULT_SIM_TIMEOUT_SECONDS
+    digital_vector_limit: int | None = None
 
 
 @dataclass(frozen=True)
@@ -107,6 +111,7 @@ def run_digital_matrix(
     ordered_entries = [entry for entry in matrix_entries if entry is not None]
     failed_entries = sum(1 for entry in ordered_entries if entry["status"] == "FAIL")
     error_entries = sum(1 for entry in ordered_entries if entry["status"] == "ERROR")
+    timeout_entries = sum(1 for entry in ordered_entries if entry["status"] == "TIMEOUT")
     payload: dict[str, object] = {
         "schema_version": 8,
         "generated_at": timestamp(),
@@ -117,6 +122,7 @@ def run_digital_matrix(
         "passed_entries": sum(1 for entry in ordered_entries if entry["status"] == "PASS"),
         "failed_entries": failed_entries,
         "error_entries": error_entries,
+        "timeout_entries": timeout_entries,
         "entries": ordered_entries,
     }
     if manifest_summary is not None:
@@ -174,10 +180,11 @@ def run_digital_matrix_job(
         )
         summary = (
             f"[{job.index}/{job.total}] {job.entry.spec.dut} "
-            f"{job.run_config.corner_name or job.run_config.model} ERROR: {type(exc).__name__}: {exc}"
+            f"{job.run_config.corner_name or job.run_config.model} "
+            f"{matrix_payload['status']}: {type(exc).__name__}: {exc}"
         )
         emit_digital_event(
-            event_writer, "done", job, status="ERROR", error=f"{type(exc).__name__}: {exc}",
+            event_writer, "done", job, status=str(matrix_payload["status"]), error=f"{type(exc).__name__}: {exc}",
         )
     finally:
         close = getattr(progress, "close", None)
@@ -207,6 +214,7 @@ def run_digital_entry(
             observation=observation,
         )
         measurements = entry.spec.measurements
+        vector_sequence = digital_vector_sequence(entry, options)
         resolved_slots = resolved_recipe.observation.slots_per_task
         if resolved_slots is None and options.digital_slots_per_task is None:
             resolved_slots = auto_slots_per_task(
@@ -224,6 +232,8 @@ def run_digital_entry(
             uic=resolved_recipe.observation.uic,
             clock_period=resolved_recipe.observation.clock_period,
             slots_per_task=resolved_slots,
+            vector_sequence=vector_sequence,
+            timeout=options.sim_timeout,
             progress=progress,
         )
         analyzer = DigitalWaveformAnalyzer(entry.spec)
@@ -233,6 +243,7 @@ def run_digital_entry(
                 measurements=measurements,
                 vdd=stimulus.vdd,
                 sample_fraction=stimulus.sample_fraction,
+                vector_sequence=vector_sequence,
             )
         except RuntimeError:
             result = analyzer.verify(
@@ -240,6 +251,7 @@ def run_digital_entry(
                 measurements=("truth_table",),
                 vdd=stimulus.vdd,
                 sample_fraction=stimulus.sample_fraction,
+                vector_sequence=vector_sequence,
             )
         write_digital_verification_artifacts(
             artifact_dir,
@@ -289,15 +301,21 @@ def digital_error_payload(
     elapsed: float,
     artifact_dir: Path,
 ) -> dict[str, object]:
+    status = "TIMEOUT" if _is_timeout_error(exc) else "ERROR"
     return {
         **digital_plan_entry_payload_from_mode(entry, run_config, mode),
-        "status": "ERROR",
+        "status": status,
         "rows": 0,
         "failed_rows": 0,
         "elapsed_seconds": elapsed,
         "artifact_dir": str(artifact_dir),
         "error": f"{type(exc).__name__}: {exc}",
     }
+
+
+def _is_timeout_error(exc: Exception) -> bool:
+    text = f"{type(exc).__name__}: {exc}".lower()
+    return "timeout" in text or "timed out" in text
 
 
 def digital_plan_entry_payload(
@@ -310,6 +328,7 @@ def digital_plan_entry_payload(
         "testbench_cell": entry.testbench_cell,
         "dut": entry.spec.dut,
         "row_count": entry.spec.row_count,
+        "effective_vector_limit": options.digital_vector_limit,
         "model": run_config.model,
         "techlib": run_config.techlib,
         "corner": run_config.corner_name,
@@ -510,6 +529,19 @@ def effective_observation_payload(
     ).as_dict()
 
 
+def digital_vector_sequence(
+    entry: DigitalTestbenchEntry,
+    options: DigitalRunnerOptions,
+) -> tuple[tuple[int, ...], ...] | None:
+    if options.digital_vector_limit is None:
+        return None
+    limit = int(options.digital_vector_limit)
+    if limit < 1:
+        raise ValueError("digital_vector_limit must be positive")
+    sequence = gray_code_sequence(len(entry.spec.inputs))
+    return sequence[: min(limit, len(sequence))]
+
+
 def auto_slots_per_task(
     vectors: int,
     *,
@@ -536,7 +568,12 @@ def estimate_settle_time(dependencies: tuple[str, ...], *, base: float = 5e-8) -
 
 
 def digital_execution_payload(options: DigitalRunnerOptions, total: int) -> dict[str, object]:
-    return {"max_workers": options.max_workers, "entries": total}
+    return {
+        "max_workers": options.max_workers,
+        "entries": total,
+        "sim_timeout": options.sim_timeout,
+        "digital_vector_limit": options.digital_vector_limit,
+    }
 
 
 def digital_matrix_entry_payload(

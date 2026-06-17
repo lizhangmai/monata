@@ -57,6 +57,7 @@ class DigitalWaveformAnalyzer:
         measurements: tuple[DigitalMeasurementName, ...] = ("truth_table",),
         vdd: float = 1.0,
         sample_fraction: float = 0.9,
+        vector_sequence: tuple[tuple[int, ...], ...] | None = None,
     ) -> DigitalTruthTableResult:
         return self._transient_results(
             sim_results,
@@ -64,6 +65,7 @@ class DigitalWaveformAnalyzer:
             measurements=measurements,
             vdd=vdd,
             sample_fraction=sample_fraction,
+            vector_sequence=vector_sequence,
         )
 
     def _transient_results(
@@ -74,11 +76,16 @@ class DigitalWaveformAnalyzer:
         measurements: tuple[DigitalMeasurementName, ...],
         vdd: float,
         sample_fraction: float,
+        vector_sequence: tuple[tuple[int, ...], ...] | None,
     ) -> DigitalTruthTableResult:
         spec = self.spec
-        combinations = tuple(
-            tuple((v >> s) & 1 for s in range(len(spec.inputs) - 1, -1, -1))
-            for v in range(2 ** len(spec.inputs))
+        combinations = (
+            tuple(
+                tuple((v >> s) & 1 for s in range(len(spec.inputs) - 1, -1, -1))
+                for v in range(2 ** len(spec.inputs))
+            )
+            if vector_sequence is None
+            else tuple(vector_sequence)
         )
         results = list(sim_results)
         if results and all(_is_digital_sequence_result(r) for r in results):
