@@ -45,6 +45,9 @@ Homepage = "https://github.com/lizhangmai/monata"
 Repository = "https://github.com/lizhangmai/monata"
 Issues = "https://github.com/lizhangmai/monata/issues"
 
+[project.scripts]
+monata = "monata.cli:main"
+
 [tool.hatch.build.targets.wheel]
 only-packages = true
 packages = ["src/monata"]
