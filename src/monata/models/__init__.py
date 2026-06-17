@@ -8,7 +8,7 @@ Public API:
 
 from monata.models.compiler import ModelCompiler
 from monata.models.diagnostics import ModelDiagnostic, ModelDiagnosticError
-from monata.models.flow import ModelFlowRecipe, ResolvedModelFlow, SimulationModelConfig
+from monata.models.flow import ModelFlowError, ModelFlowRecipe, ResolvedModelFlow, SimulationModelConfig
 from monata.models.manifest import DeviceMetadata, ModelManifest, ModelSelection
 from monata.models.resolver import ModelResolver, resolve_model_flow
 from monata.models.registry import ModelRegistry
@@ -18,6 +18,7 @@ __all__ = [
     "ModelCompiler",
     "DeviceMetadata",
     "ModelFlowRecipe",
+    "ModelFlowError",
     "ModelDiagnostic",
     "ModelDiagnosticError",
     "ModelManifest",

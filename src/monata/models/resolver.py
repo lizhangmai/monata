@@ -18,6 +18,7 @@ from monata.models.cache import ModelCache, resolve_model_cache_dir
 from monata.models.compiler import ModelCompiler
 from monata.models.diagnostics import ModelDiagnostic, ModelDiagnosticError
 from monata.models.flow import (
+    ModelFlowError,
     ModelFlowRecipe,
     ResolvedModelFlow,
     SimulationModelConfig,
@@ -26,7 +27,6 @@ from monata.models.flow import (
 from monata.models.manifest import ModelSelection
 from monata.models.registry import ModelEntry
 from monata.runtime.capabilities import CapabilityState, SimulatorProfile
-from monata.techlib.schema import TechlibError
 
 
 @dataclass(frozen=True)
@@ -418,7 +418,7 @@ def _source_include_paths(recipe: ModelFlowRecipe, source_path: Path) -> tuple[P
                 root_label="source_va directory",
             )
         except ValueError as exc:
-            raise TechlibError(str(exc)) from exc
+            raise ModelFlowError(str(exc)) from exc
         if path not in seen:
             seen.add(path)
             includes.append(path)

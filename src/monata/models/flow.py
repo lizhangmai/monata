@@ -13,7 +13,6 @@ from monata.models.artifacts import ModelArtifact
 from monata.models.diagnostics import ModelDiagnostic
 from monata.models.manifest import ModelSelection
 from monata.runtime.capabilities import SimulatorProfile
-from monata.techlib.schema import TechlibError
 
 
 ModelPolicyName = Literal[
@@ -24,6 +23,10 @@ ModelPolicyName = Literal[
     "bundled-only",
     "strict",
 ]
+
+
+class ModelFlowError(ValueError):
+    """Raised for invalid model-flow recipe paths or metadata."""
 
 _MODEL_FLOW_RECIPE_FIELDS = frozenset({
     "name",
@@ -239,4 +242,4 @@ def path_from_recipe(root: Path, value: str | None) -> Path | None:
             root_label="techlib root",
         )
     except ValueError as exc:
-        raise TechlibError(str(exc)) from exc
+        raise ModelFlowError(str(exc)) from exc

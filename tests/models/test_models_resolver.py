@@ -3,13 +3,13 @@ from pathlib import Path
 import pytest
 
 from monata.models.diagnostics import ModelDiagnosticError
-from monata.models.flow import ModelFlowRecipe, SimulationModelConfig
+from monata.models.flow import ModelFlowError, ModelFlowRecipe, SimulationModelConfig
 from monata.models.resolver import resolve_model_flow
 from monata.models.registry import ModelRegistry
 from monata.runtime.capabilities import CapabilityState, native_level_profile, ngspice_profile
 from monata.corner import OperatingCorner
 from monata.techlib.registry import Techlib
-from monata.techlib.schema import ModelDeck, TechlibError
+from monata.techlib.schema import ModelDeck
 from support.model_cases import _flow_test_techlib
 pytestmark = pytest.mark.slow
 
@@ -283,7 +283,7 @@ def test_model_resolver_rejects_recipe_paths_that_escape_techlib_root(tmp_path):
     )
     profile = ngspice_profile(osdi=CapabilityState.SUPPORTED)
 
-    with pytest.raises(TechlibError, match="relative to the techlib root"):
+    with pytest.raises(ModelFlowError, match="relative to the techlib root"):
         resolve_model_flow(
             techlib,
             "tt",
@@ -310,7 +310,7 @@ def test_model_resolver_rejects_source_includes_that_escape_source_root(tmp_path
     )
     profile = ngspice_profile(osdi=CapabilityState.SUPPORTED)
 
-    with pytest.raises(TechlibError, match="model flow source include path must be relative to the source_va directory"):
+    with pytest.raises(ModelFlowError, match="model flow source include path must be relative to the source_va directory"):
         resolve_model_flow(
             techlib,
             "tt",
