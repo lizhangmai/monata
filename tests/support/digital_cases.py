@@ -1,6 +1,6 @@
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -364,7 +364,7 @@ def _sequence_result_for_task(
 
 
 def _bits_from_text(text: str) -> tuple[int, ...]:
-    return tuple(int(bit) for bit in text.strip())
+    return cast(tuple[int, ...], tuple(int(bit) for bit in text.strip()))
 
 
 def _clocked_sequence_waveforms(
@@ -377,10 +377,12 @@ def _clocked_sequence_waveforms(
 ) -> SimResult:
     import numpy as np
 
-    initial_settle = float(stimulus.get("initial_settle", 0.0))
-    clock_period = float(stimulus.get("clock_period", stim.period))
-    raw_states = list(stimulus.get("state_sequence", []))
-    states = tuple(_bits_from_text(str(text)) for text in raw_states)
+    initial_settle = float(_scalar_metadata_value(stimulus.get("initial_settle", 0.0)))
+    clock_period = float(_scalar_metadata_value(stimulus.get("clock_period", stim.period)))
+    raw_states = tuple(_iterable_metadata_value(stimulus.get("state_sequence", ())))
+    states: list[tuple[int, ...]] = [_bits_from_text(str(text)) for text in raw_states]
+    if not states:
+        raise ValueError("clocked sequence stimulus requires at least one state")
     transition = max(stim.transition, 0.0)
     delay_value = float(delay[0] if isinstance(delay, tuple) else delay)
 
@@ -425,3 +427,17 @@ def _clocked_sequence_waveforms(
 
 def _sequence_expected_outputs_for_stim(stim: DigitalStimulusConfig, bits: tuple[int, ...]) -> tuple[int, ...]:
     return tuple(bits[0] & bits[1] for _output in stim.outputs)
+
+
+def _scalar_metadata_value(value: object) -> str | float | int:
+    if isinstance(value, (str, int, float)):
+        return value
+    raise TypeError(f"expected scalar metadata value, got {type(value).__name__}")
+
+
+def _iterable_metadata_value(value: object) -> Iterable[object]:
+    if isinstance(value, str):
+        raise TypeError("expected iterable metadata value, got str")
+    if isinstance(value, Iterable):
+        return value
+    raise TypeError(f"expected iterable metadata value, got {type(value).__name__}")

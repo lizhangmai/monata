@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import cast
 
 from monata.corner import OperatingCorner
 from monata.digital.projection import PdkProjectionOwner
@@ -66,7 +68,11 @@ def resolve_digital_model_flow(
     resolver = getattr(projection_library, "resolve_model_flow", None)
     if not callable(resolver):
         return None
-    return resolver(
+    typed_resolver = cast(
+        Callable[..., ResolvedModelFlow | None],
+        resolver,
+    )
+    return typed_resolver(
         corner,
         model_config=model_config,
         simulator_profile=model_config.simulator_profile,

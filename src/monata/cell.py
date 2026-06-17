@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 from monata._config import read_toml, reject_unknown_fields, write_cell_config
 from monata._paths import validate_path_segment
@@ -10,6 +10,7 @@ from monata._types import NetlistProjectionMode
 from monata.errors import ViewAlreadyModifiedError, ViewNotFoundError
 
 if TYPE_CHECKING:
+    from monata.category import Category
     from monata.views.registry import ViewConfig
 
 _CELL_CONFIG_FIELDS = frozenset({"cell", "views"})
@@ -35,10 +36,10 @@ def _validate_cell_config(config: Mapping[str, Any]) -> None:
 
 
 class Cell:
-    def __init__(self, path, library, *, category=None):
+    def __init__(self, path, library, *, category: Category | None = None):
         self._path = Path(path)
         self._library = library
-        self._category = category
+        self._category: Category | None = category
         self._config = None
 
     def _load_config(self):
@@ -56,7 +57,7 @@ class Cell:
         return self._library
 
     @property
-    def category(self):
+    def category(self) -> Category | None:
         if self._category is not None:
             return self._category
         return self._infer_category()
@@ -75,11 +76,12 @@ class Cell:
     def path(self) -> Path:
         return self._path
 
-    def _infer_category(self):
+    def _infer_category(self) -> Category | None:
         category_for_cell_path = getattr(self._library, "_category_for_cell_path", None)
         if not callable(category_for_cell_path):
             return None
-        self._category = category_for_cell_path(self._path)
+        typed_category_for_cell_path = cast(Callable[[Path], Category | None], category_for_cell_path)
+        self._category = typed_category_for_cell_path(self._path)
         return self._category
 
     def _views_config(self) -> dict[str, ViewConfig]:

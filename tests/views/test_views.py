@@ -1,8 +1,9 @@
 import json
 from pathlib import Path
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from concurrent.futures import Future
 from types import MappingProxyType, SimpleNamespace
+from typing import cast
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -152,7 +153,15 @@ def _task_digital_metadata(task):
 
 
 def _bits_from_text(text: str) -> tuple[int, ...]:
-    return tuple(int(bit) for bit in text.strip())
+    return cast(tuple[int, ...], tuple(int(bit) for bit in text.strip()))
+
+
+def _iterable_metadata_value(value: object) -> Iterable[object]:
+    if isinstance(value, str):
+        raise TypeError("expected iterable metadata value, got str")
+    if isinstance(value, Iterable):
+        return value
+    raise TypeError(f"expected iterable metadata value, got {type(value).__name__}")
 
 
 def _digital_sequence_result_for_task(task):
@@ -161,7 +170,11 @@ def _digital_sequence_result_for_task(task):
     stimulus = payload["stimulus"]
     inputs = tuple(payload["digital_verification"]["inputs"])
     outputs = tuple(payload["digital_verification"]["outputs"])
-    state_sequence = tuple(_bits_from_text(text) for text in stimulus["state_sequence"])
+    state_sequence: list[tuple[int, ...]] = [
+        _bits_from_text(str(text)) for text in _iterable_metadata_value(stimulus["state_sequence"])
+    ]
+    if not state_sequence:
+        raise ValueError("digital sequence stimulus requires at least one state")
     initial_settle = float(stimulus.get("initial_settle", 0.0))
     clock_period = float(stimulus.get("clock_period", 4e-9))
     transition = float(stimulus.get("transition", 1e-10))
@@ -315,11 +328,6 @@ def _write_and2_verification_views(cell) -> None:
             },
         },
     )
-
-
-def _bits_from_text(text: str) -> tuple[int, ...]:
-    return tuple(int(bit) for bit in text)
-
 
 def _run_truth_table_verification(cell, *, executor, artifact_dir, run_config):
     verification = cell["verification"]

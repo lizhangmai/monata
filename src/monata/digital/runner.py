@@ -13,6 +13,7 @@ from typing import Any, Literal
 
 from monata.corner import OperatingCorner
 from monata.models import SimulationModelConfig
+from monata.netlist import SubCircuit
 from monata.sim.core import LocalExecutor
 from monata.digital.claims import DigitalTransientObservation
 from monata.digital.circuits import SubCircuitInput
@@ -482,7 +483,12 @@ def schematic_subcircuit_for_entry(
     to_circuit = getattr(view, "to_circuit", None)
     if not callable(to_circuit):
         raise TypeError(f"{entry.testbench_cell}: schematic view for {cell_name!r} is not convertible")
-    return to_circuit()
+    circuit = to_circuit()
+    if isinstance(circuit, type) and issubclass(circuit, SubCircuit):
+        return circuit
+    if isinstance(circuit, SubCircuit):
+        return circuit
+    raise TypeError(f"{entry.testbench_cell}: schematic view for {cell_name!r} must resolve to a SubCircuit")
 
 
 def selected_model_profile_for_entry(
